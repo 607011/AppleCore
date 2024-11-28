@@ -64,7 +64,7 @@ palette:
 
 ## Postprocess
 
-When `mandelbrot` has completed the generation of the image files, you can combine them into a video with the use of FFMpeg, for instance:
+When `mandelbrot` has completed the generation of the image files, you can combine them into a video with the aid of FFMpeg, for instance:
 
 ```bash
 ffmpeg -y -framerate 60 \
