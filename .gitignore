@@ -1,3 +1,9 @@
+build
+mandelbrot
+*.png
+*.mp4
+.DS_Store
+.vscode
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
@@ -10,3 +16,4 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
+*.dSYM
