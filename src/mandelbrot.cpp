@@ -1,8 +1,10 @@
+#include <cmath>
 #include <cstdlib>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <locale>
+#include <mutex>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -26,6 +28,25 @@ class thsds_numpunct : public std::numpunct<char>
     }
 };
 
+palette_t create_grayscale_palette(void);
+
+int width = 4096;
+int height = 2160;
+double zoom_from = 0.5;
+double zoom_to = 1.84e100;
+double zoom_factor = 1.1;
+double zoom_increment = 0;
+mpf_class c_real("-0.75");
+mpf_class c_imag("0.0");
+mp_bitcnt_t min_precision_bits = 256;
+unsigned long long base_iterations = 10'000;
+double iterations_factor = 1.5;
+double log_scale_factor = 0.1;
+unsigned long long max_iterations_limit = 1'500'000'000ULL;
+palette_t palette = create_grayscale_palette();
+std::string out_file = "mandelbrot.png";
+const char* WINDOW_NAME = "AppleCore";
+
 unsigned long long mandelbrot(mpf_class const& c_real, mpf_class const& c_imag, const unsigned long long max_iterations)
 {
     mpf_class z_real = 0;
@@ -33,13 +54,10 @@ unsigned long long mandelbrot(mpf_class const& c_real, mpf_class const& c_imag, 
     unsigned long long iterations = 0ULL;
     while (iterations < max_iterations)
     {
-        // calculate z^2
         mpf_class z_real_temp = z_real * z_real - z_imag * z_imag;
         mpf_class z_imag_temp = 2 * z_real * z_imag;
-        // add c
         z_real = z_real_temp + c_real;
         z_imag = z_imag_temp + c_imag;
-        // check for divergence
         if (z_real * z_real + z_imag * z_imag > 4)
             break;
         ++iterations;
@@ -47,20 +65,36 @@ unsigned long long mandelbrot(mpf_class const& c_real, mpf_class const& c_imag, 
     return iterations;
 }
 
+// unsigned long long calculate_max_iterations(double zoom_level)
+// {
+//     unsigned long long max_iterations =
+//         static_cast<unsigned long long>(base_iterations * std::pow(iterations_factor, zoom_level));
+//     return max_iterations;
+// }
+
 unsigned long long calculate_max_iterations(double zoom_level)
 {
-    const long long base_iterations = 1000;
-    const double scale_factor = 1.5;
     unsigned long long max_iterations =
-        base_iterations * static_cast<unsigned long long>(std::pow(scale_factor, zoom_level));
+        static_cast<unsigned long long>(base_iterations * std::exp(log_scale_factor * zoom_level));
     return max_iterations;
 }
 
+// unsigned long long calculate_max_iterations(double zoom_level) {
+//     unsigned long long max_iterations =  static_cast<unsigned long long>(base_iterations * std::pow(10, log_scale_factor * zoom_level));
+//     return max_iterations;
+// }
+
 palette_t create_grayscale_palette(void)
 {
-    palette_t palette;
+    palette_t palette(512);
     for (int i = 0; i < 256; ++i)
+    {
         palette.emplace_back(cv::Vec3b((uchar)i, (uchar)i, (uchar)i));
+    }
+    for (int i = 0; i < 256; ++i)
+    {
+        palette.emplace_back(cv::Vec3b((uchar)(255 - i), (uchar)(255 - i), (uchar)(255 - i)));
+    }
     return palette;
 }
 
@@ -77,19 +111,6 @@ std::string replace_substring(const std::string& str, const std::string& substri
     }
     return result;
 }
-
-int width = 4096;
-int height = 2160;
-double zoom_from = 0.5;
-double zoom_to = 1.84e100;
-double zoom_factor = 1.1;
-double zoom_increment = 0;
-mpf_class c_real("-0.75");
-mpf_class c_imag("0.0");
-mp_bitcnt_t min_precision_bits = 256;
-unsigned long long max_iterations_limit = 1'500'000'000ULL;
-palette_t palette = create_grayscale_palette();
-std::string out_file = "mandelbrot.png";
 
 void parse_config_file(std::string const& config_file)
 {
@@ -118,6 +139,18 @@ void parse_config_file(std::string const& config_file)
     if (config["min_precision_bits"])
     {
         min_precision_bits = config["min_precision_bits"].as<mp_bitcnt_t>();
+    }
+    if (config["base_iterations"])
+    {
+        base_iterations = config["base_iterations"].as<unsigned long long>();
+    }
+    if (config["log_scale_factor"])
+    {
+        log_scale_factor = config["log_scale_factor"].as<double>();
+    }
+    if (config["iterations_factor"])
+    {
+        iterations_factor = config["iterations_factor"].as<double>();
     }
     if (config["palette"] || config["palette"].IsSequence())
     {
@@ -150,9 +183,21 @@ void parse_config_file(std::string const& config_file)
     }
 }
 
+static std::mutex image_mutex;
+static int completed_rows = 0;
+
+cv::Vec3b get_rainbow_color(double value) {
+    int hue = static_cast<int>(value * 360);
+    cv::Mat hsv(1, 1, CV_8UC3);
+    hsv.at<cv::Vec3b>(0, 0) = cv::Vec3b(hue, 255, 255);
+    cv::Mat bgr;
+    cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
+    return bgr.at<cv::Vec3b>(0, 0);
+}
+
 void calculate_mandelbrot_row_range(cv::Mat& image, mpf_class const& scale_factor, mpf_class const& real_start,
                                     mpf_class const& imag_start, int start_row, int end_row,
-                                    const unsigned long long max_iterations, palette_t& palette)
+                                    const unsigned long long max_iterations, palette_t const& palette)
 {
     static const cv::Vec3b BLACK = cv::Vec3b(0, 0, 0);
     for (int y = start_row; y < end_row; ++y)
@@ -162,9 +207,14 @@ void calculate_mandelbrot_row_range(cv::Mat& image, mpf_class const& scale_facto
             mpf_class const& pixel_real = real_start + x * scale_factor;
             mpf_class const& pixel_imag = imag_start + y * scale_factor;
             const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, max_iterations);
-            image.at<cv::Vec3b>(y, x) =
-                (iterations < max_iterations) ? palette.at(iterations * palette.size() / max_iterations) : BLACK;
+            double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
+            // image.at<cv::Vec3b>(y, x) =
+            //     (iterations < max_iterations) ? palette.at(iterations * palette.size() / max_iterations) : BLACK;
+            image.at<cv::Vec3b>(y, x) = (iterations < max_iterations) ? get_rainbow_color(hue) : BLACK;
         }
+        image_mutex.lock();
+        ++completed_rows;
+        image_mutex.unlock();
     }
 }
 
@@ -178,18 +228,21 @@ int main(int argc, char* argv[])
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
+    std::cout << "Iterations factor: " << iterations_factor << std::endl;
     int zoom = 0;
     mpf_set_default_prec(min_precision_bits);
     cv::Mat image(height, width, CV_8UC3);
-    for (double zoom_level = zoom_from; zoom_level < zoom_to; zoom_level = zoom_level * zoom_factor + zoom_increment)
+
+    cv::namedWindow(WINDOW_NAME, cv::WINDOW_AUTOSIZE);
+    for (double zoom_level = zoom_from; zoom_level <= zoom_to; zoom_level = zoom_level * zoom_factor + zoom_increment)
     {
-        std::cout << "Current zoom level: " << zoom_level << std::endl;
         mpf_class scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
-        mpf_class aspect_ratio(static_cast<double>(width) / height);
         mpf_class real_start = c_real - width / 2.0 * scale_factor;
         mpf_class imag_start = c_imag - height / 2.0 * scale_factor;
         const unsigned long long max_iterations = std::min(max_iterations_limit, calculate_max_iterations(zoom_level));
         std::vector<std::thread> threads;
+        std::cout << "Zoom level: " << zoom_level << "; max. iterations: " << max_iterations << std::endl;
+        completed_rows = 0;
         for (int i = 0; i < num_threads; ++i)
         {
             int start_row = i * height / num_threads;
@@ -199,6 +252,16 @@ int main(int argc, char* argv[])
             threads.emplace_back(calculate_mandelbrot_row_range, std::ref(image), scale_factor, real_start, imag_start,
                                  start_row, end_row, max_iterations, std::ref(palette));
         }
+        while (completed_rows < height)
+        {
+            std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height) << "%)\x1b[K" << std::flush;
+            image_mutex.lock();
+            cv::imshow(WINDOW_NAME, image);
+            image_mutex.unlock();
+            int key = cv::waitKey(10);
+            if (key == 'q')
+                break;
+        }
         for (std::thread& thread : threads)
         {
             thread.join();
@@ -207,6 +270,10 @@ int main(int argc, char* argv[])
         std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
         cv::imwrite(png_file, image);
     }
+
+    std::cout << "\nReady.\nPress a key." << std::endl;
+    cv::waitKey();
+    cv::destroyAllWindows();
 
     return EXIT_SUCCESS;
 }
