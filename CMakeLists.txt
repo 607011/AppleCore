@@ -26,8 +26,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -glldb")
 endif()
 
-find_package(OpenCV REQUIRED)
-
 find_path(GMP_INCLUDE_DIRS NAMES gmp.h)
 find_library(GMP_LIBRARY NAMES gmp libgmp)
 
@@ -40,6 +38,15 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(yaml-cpp)
 
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
+FetchContent_Declare(SFML
+    GIT_REPOSITORY https://github.com/SFML/SFML.git
+    GIT_TAG 2.6.x
+    GIT_SHALLOW ON
+    EXCLUDE_FROM_ALL
+    SYSTEM)
+FetchContent_MakeAvailable(SFML)
+
 add_definitions(-DPROJECT_NAME="${CMAKE_PROJECT_NAME}" -DPROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
 
 set(MANDELBROT_SOURCES 
@@ -51,14 +58,15 @@ add_executable(mandelbrot ${MANDELBROT_SOURCES})
 target_include_directories(mandelbrot
   PRIVATE ${PROJECT_INCLUDE_DIRS}
   build
-  PUBLIC ${OpenCV_INCLUDE_DIRS}
+  PUBLIC ${SFML_INCLUDE_DIRS}
   ${GMP_INCLUDE_DIRS}
 )
 
 target_link_libraries(mandelbrot 
-  PUBLIC ${OpenCV_LIBS}
+  PUBLIC 
   ${GMP_LIBRARY}
   yaml-cpp::yaml-cpp
+  sfml-graphics
 )
 
 if(UNIX)

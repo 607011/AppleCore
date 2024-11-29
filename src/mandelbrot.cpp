@@ -9,11 +9,11 @@
 #include <thread>
 #include <vector>
 
+#include <SFML/Graphics.hpp>
 #include <gmpxx.h>
-#include <opencv2/opencv.hpp>
 #include <yaml-cpp/yaml.h>
 
-using palette_t = std::vector<cv::Vec3b>;
+using palette_t = std::vector<sf::Color>;
 
 class thsds_numpunct : public std::numpunct<char>
 {
@@ -42,8 +42,8 @@ mp_bitcnt_t min_precision_bits = 256;
 unsigned long long base_iterations = 10'000;
 double iterations_factor = 1.5;
 double log_scale_factor = 0.1;
+palette_t palette;
 unsigned long long max_iterations_limit = 1'500'000'000ULL;
-palette_t palette = create_grayscale_palette();
 std::string out_file = "mandelbrot.png";
 const char* WINDOW_NAME = "AppleCore";
 
@@ -65,37 +65,11 @@ unsigned long long mandelbrot(mpf_class const& c_real, mpf_class const& c_imag, 
     return iterations;
 }
 
-// unsigned long long calculate_max_iterations(double zoom_level)
-// {
-//     unsigned long long max_iterations =
-//         static_cast<unsigned long long>(base_iterations * std::pow(iterations_factor, zoom_level));
-//     return max_iterations;
-// }
-
 unsigned long long calculate_max_iterations(double zoom_level)
 {
     unsigned long long max_iterations =
         static_cast<unsigned long long>(base_iterations * std::exp(log_scale_factor * zoom_level));
     return max_iterations;
-}
-
-// unsigned long long calculate_max_iterations(double zoom_level) {
-//     unsigned long long max_iterations =  static_cast<unsigned long long>(base_iterations * std::pow(10, log_scale_factor * zoom_level));
-//     return max_iterations;
-// }
-
-palette_t create_grayscale_palette(void)
-{
-    palette_t palette(512);
-    for (int i = 0; i < 256; ++i)
-    {
-        palette.emplace_back(cv::Vec3b((uchar)i, (uchar)i, (uchar)i));
-    }
-    for (int i = 0; i < 256; ++i)
-    {
-        palette.emplace_back(cv::Vec3b((uchar)(255 - i), (uchar)(255 - i), (uchar)(255 - i)));
-    }
-    return palette;
 }
 
 std::string replace_substring(const std::string& str, const std::string& substring, int value, int padding = 6)
@@ -155,7 +129,7 @@ void parse_config_file(std::string const& config_file)
     if (config["palette"] || config["palette"].IsSequence())
     {
         auto parse_rgb = [](std::string const& str) {
-            std::vector<uchar> numbers;
+            std::vector<sf::Uint8> numbers;
             std::stringstream ss(str);
             std::string token;
             while (std::getline(ss, token, ','))
@@ -163,17 +137,17 @@ void parse_config_file(std::string const& config_file)
                 int number;
                 std::stringstream token_stream(token);
                 token_stream >> number;
-                numbers.push_back(static_cast<uchar>(number));
+                numbers.push_back(static_cast<sf::Uint8>(number));
             }
             return numbers;
         };
         palette.clear();
         for (auto it : config["palette"])
         {
-            std::vector<uchar> rgb = parse_rgb(it.as<std::string>());
+            std::vector<sf::Uint8> const& rgb = parse_rgb(it.as<std::string>());
             if (rgb.size() == 3)
             {
-                palette.emplace_back(cv::Vec3b(rgb.at(0), rgb.at(1), rgb.at(2)));
+                palette.emplace_back(sf::Color(rgb.at(0), rgb.at(1), rgb.at(2)));
             }
         }
     }
@@ -186,20 +160,42 @@ void parse_config_file(std::string const& config_file)
 static std::mutex image_mutex;
 static int completed_rows = 0;
 
-cv::Vec3b get_rainbow_color(double value) {
+sf::Color get_rainbow_color(double value)
+{
     int hue = static_cast<int>(value * 360);
-    cv::Mat hsv(1, 1, CV_8UC3);
-    hsv.at<cv::Vec3b>(0, 0) = cv::Vec3b(hue, 255, 255);
-    cv::Mat bgr;
-    cv::cvtColor(hsv, bgr, cv::COLOR_HSV2BGR);
-    return bgr.at<cv::Vec3b>(0, 0);
+    hue %= 360;
+    int r, g, b;
+    if (hue < 60)
+    {
+        r = 255;
+        g = hue * 4 + 3 * (255 - hue);
+        b = 0;
+    }
+    else if (hue < 180)
+    {
+        r = (180 - hue) * 3 + 0;
+        g = 255;
+        b = hue * 4 + 3 * (255 - hue);
+    }
+    else if (hue < 300)
+    {
+        r = 0;
+        g = (hue - 180) * 3 + 0;
+        b = 255;
+    }
+    else
+    {
+        r = hue * 4 + 3 * (255 - hue);
+        g = 0;
+        b = (360 - hue) * 3 + 0;
+    }
+    return sf::Color(static_cast<sf::Uint8>(r), static_cast<sf::Uint8>(g), static_cast<sf::Uint8>(b));
 }
 
-void calculate_mandelbrot_row_range(cv::Mat& image, mpf_class const& scale_factor, mpf_class const& real_start,
+void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_factor, mpf_class const& real_start,
                                     mpf_class const& imag_start, int start_row, int end_row,
-                                    const unsigned long long max_iterations, palette_t const& palette)
+                                    const unsigned long long max_iterations)
 {
-    static const cv::Vec3b BLACK = cv::Vec3b(0, 0, 0);
     for (int y = start_row; y < end_row; ++y)
     {
         for (int x = 0; x < width; ++x)
@@ -207,10 +203,8 @@ void calculate_mandelbrot_row_range(cv::Mat& image, mpf_class const& scale_facto
             mpf_class const& pixel_real = real_start + x * scale_factor;
             mpf_class const& pixel_imag = imag_start + y * scale_factor;
             const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, max_iterations);
-            double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
-            // image.at<cv::Vec3b>(y, x) =
-            //     (iterations < max_iterations) ? palette.at(iterations * palette.size() / max_iterations) : BLACK;
-            image.at<cv::Vec3b>(y, x) = (iterations < max_iterations) ? get_rainbow_color(hue) : BLACK;
+            const double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
+            image.setPixel(x, y, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
         }
         image_mutex.lock();
         ++completed_rows;
@@ -231,10 +225,11 @@ int main(int argc, char* argv[])
     std::cout << "Iterations factor: " << iterations_factor << std::endl;
     int zoom = 0;
     mpf_set_default_prec(min_precision_bits);
-    cv::Mat image(height, width, CV_8UC3);
-
-    cv::namedWindow(WINDOW_NAME, cv::WINDOW_AUTOSIZE);
-    for (double zoom_level = zoom_from; zoom_level <= zoom_to; zoom_level = zoom_level * zoom_factor + zoom_increment)
+    sf::Image image;
+    image.create(width, height, sf::Color::Black);
+    sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
+    for (double zoom_level = zoom_from; zoom_level <= zoom_to && window.isOpen();
+         zoom_level = zoom_level * zoom_factor + zoom_increment)
     {
         mpf_class scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
         mpf_class real_start = c_real - width / 2.0 * scale_factor;
@@ -250,17 +245,26 @@ int main(int argc, char* argv[])
             // "it is safe to operate on the same matrices asynchronously in different threads"
             // (see https://docs.opencv.org/4.x/d3/d63/classcv_1_1Mat.html)
             threads.emplace_back(calculate_mandelbrot_row_range, std::ref(image), scale_factor, real_start, imag_start,
-                                 start_row, end_row, max_iterations, std::ref(palette));
+                                 start_row, end_row, max_iterations);
         }
         while (completed_rows < height)
         {
-            std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height) << "%)\x1b[K" << std::flush;
+            std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height)
+                      << "%)\x1b[K" << std::flush;
             image_mutex.lock();
-            cv::imshow(WINDOW_NAME, image);
+            sf::Texture texture;
+            texture.loadFromImage(image);
             image_mutex.unlock();
-            int key = cv::waitKey(10);
-            if (key == 'q')
-                break;
+            sf::Sprite sprite(texture);
+            sf::Event event;
+            while (window.pollEvent(event))
+            {
+                if (event.type == sf::Event::Closed)
+                    window.close();
+            }
+            window.clear();
+            window.draw(sprite);
+            window.display();
         }
         for (std::thread& thread : threads)
         {
@@ -268,12 +272,8 @@ int main(int argc, char* argv[])
         }
         std::string png_file = replace_substring(out_file, "%z", zoom++);
         std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
-        cv::imwrite(png_file, image);
+        image.saveToFile(png_file);
     }
-
-    std::cout << "\nReady.\nPress a key." << std::endl;
-    cv::waitKey();
-    cv::destroyAllWindows();
 
     return EXIT_SUCCESS;
 }
