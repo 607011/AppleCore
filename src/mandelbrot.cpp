@@ -40,7 +40,6 @@ mpf_class c_real("-0.75");
 mpf_class c_imag("0.0");
 mp_bitcnt_t min_precision_bits = 256;
 unsigned long long base_iterations = 10'000;
-double iterations_factor = 1.5;
 double log_scale_factor = 0.1;
 palette_t palette;
 unsigned long long max_iterations_limit = 1'500'000'000ULL;
@@ -121,10 +120,6 @@ void parse_config_file(std::string const& config_file)
     if (config["log_scale_factor"])
     {
         log_scale_factor = config["log_scale_factor"].as<double>();
-    }
-    if (config["iterations_factor"])
-    {
-        iterations_factor = config["iterations_factor"].as<double>();
     }
     if (config["palette"] || config["palette"].IsSequence())
     {
@@ -222,7 +217,6 @@ int main(int argc, char* argv[])
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
-    std::cout << "Iterations factor: " << iterations_factor << std::endl;
     int zoom = 0;
     mpf_set_default_prec(min_precision_bits);
     sf::Image image;

@@ -4,7 +4,7 @@ zoom:
   from: 1
   to: 1.84e199
   factor: 1.01
-  increment: 0.05
+  increment: 0
 max_iterations_limit: 10000000
 min_precision_bits: 64
 base_iterations: 100
