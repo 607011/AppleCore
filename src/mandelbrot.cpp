@@ -206,8 +206,6 @@ int main(int argc, char* argv[])
         {
             int start_row = i * height / num_threads;
             int end_row = (i + 1) * height / num_threads;
-            // "it is safe to operate on the same matrices asynchronously in different threads"
-            // (see https://docs.opencv.org/4.x/d3/d63/classcv_1_1Mat.html)
             threads.emplace_back(calculate_mandelbrot_row_range, std::ref(image), scale_factor, real_start, imag_start,
                                  start_row, end_row, max_iterations);
         }
