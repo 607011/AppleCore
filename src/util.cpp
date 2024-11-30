@@ -1,4 +1,7 @@
 #include "util.hpp"
+#include <iomanip>
+#include <sstream>
+#include <string>
 
 sf::Color get_rainbow_color(double value)
 {
@@ -40,4 +43,17 @@ sf::Color get_rainbow_color(double value)
         break;
     }
     return sf::Color(static_cast<sf::Uint8>(r), static_cast<sf::Uint8>(g), static_cast<sf::Uint8>(b));
+}
+
+std::string get_iso_timestamp(std::time_t t)
+{
+    std::ostringstream oss;
+    oss << std::put_time(std::localtime(&t), "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+
+
+std::string get_current_iso_timestamp(void)
+{
+    return get_iso_timestamp(std::time(nullptr));
 }
