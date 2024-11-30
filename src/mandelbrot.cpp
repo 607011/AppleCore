@@ -1,5 +1,6 @@
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -38,6 +39,7 @@ double zoom_from = 0.5;
 double zoom_to = 1.84e100;
 double zoom_factor = 1.1;
 double zoom_increment = 0;
+int file_index = 0;
 mpf_class c_real("-0.75", 256);
 mpf_class c_imag("0.0", 256);
 mp_bitcnt_t min_precision_bits = 256;
@@ -47,6 +49,7 @@ palette_t palette;
 unsigned long long max_iterations_limit = 1'500'000'000ULL;
 std::string out_file = "mandelbrot.png";
 const char* WINDOW_NAME = "AppleCore";
+YAML::Node config;
 
 unsigned long long mandelbrot(mpf_class const& x0, mpf_class const& y0, const unsigned long long max_iterations)
 {
@@ -89,7 +92,7 @@ std::string replace_substring(const std::string& str, const std::string& substri
 
 void parse_config_file(std::string const& config_file)
 {
-    YAML::Node config = YAML::LoadFile(config_file);
+    config = YAML::LoadFile(config_file);
     if (config["width"] && config["height"])
     {
         width = config["width"].as<int>();
@@ -99,7 +102,11 @@ void parse_config_file(std::string const& config_file)
     {
         max_iterations_limit = config["max_iterations_limit"].as<unsigned long long>();
     }
-    if (config["zoom"] && config["zoom"]["from"] && config["zoom"]["to"] && config["zoom"]["factor"])
+    if (config["checkpoint"]["file_index"])
+    {
+        file_index = config["checkpoint"]["file_index"].as<int>();
+    }
+    if (config["zoom"]["from"] && config["zoom"]["to"] && config["zoom"]["factor"])
     {
         zoom_from = config["zoom"]["from"].as<double>();
         zoom_to = config["zoom"]["to"].as<double>();
@@ -171,9 +178,8 @@ void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_fac
             const double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
             image.setPixel(x, y, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
         }
-        image_mutex.lock();
+        std::lock_guard<std::mutex> guard(image_mutex);
         ++completed_rows;
-        image_mutex.unlock();
     }
 }
 
@@ -186,21 +192,21 @@ int main(int argc, char* argv[])
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
-    std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
-    int zoom = 0;
+    std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;    
     mpf_set_default_prec(min_precision_bits);
     sf::Image image;
     image.create(width, height, sf::Color::Black);
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
-    for (double zoom_level = zoom_from; zoom_level <= zoom_to && window.isOpen();
-         zoom_level = zoom_level * zoom_factor + zoom_increment)
+double zoom_level = zoom_from;
+    while (zoom_level <= zoom_to && window.isOpen())
     {
         mpf_class scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
         mpf_class real_start = c_real - width / 2.0 * scale_factor;
         mpf_class imag_start = c_imag - height / 2.0 * scale_factor;
         const unsigned long long max_iterations = std::min(max_iterations_limit, calculate_max_iterations(zoom_level));
         std::vector<std::thread> threads;
-        std::cout << "Zoom level: " << zoom_level << "; max. iterations: " << max_iterations << std::endl;
+        std::cout << "Zoom: " << std::scientific << std::setprecision(24) << 1.0 / scale_factor.get_d()
+                  << "; max. iterations: " << max_iterations << std::endl;
         completed_rows = 0;
         for (int i = 0; i < num_threads; ++i)
         {
@@ -212,7 +218,7 @@ int main(int argc, char* argv[])
 #ifndef HEADLESS
         while (completed_rows < height && window.isOpen())
         {
-            std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height)
+            std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(3) << (100.0 * completed_rows / height)
                       << "%)\x1b[K" << std::flush;
             image_mutex.lock();
             sf::Texture texture;
@@ -234,9 +240,18 @@ int main(int argc, char* argv[])
         {
             thread.join();
         }
-        std::string png_file = replace_substring(out_file, "%z", zoom++);
+        std::string png_file = replace_substring(out_file, "%z", file_index);
         std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
         image.saveToFile(png_file);
+
+        ++file_index;
+        zoom_level = zoom_level * zoom_factor + zoom_increment;
+
+        config["zoom"]["from"] = zoom_level;
+        config["checkpoint"]["file_index"] = file_index;
+        config["checkpoint"]["zoom"] = 1.0 / scale_factor.get_d();
+        std::ofstream checkpoint("checkpoint.yaml", std::ios::trunc);
+        checkpoint << config;
     }
 
     return EXIT_SUCCESS;
