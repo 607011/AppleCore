@@ -197,9 +197,11 @@ int main(int argc, char* argv[])
     sf::Image image;
     image.create(width, height, sf::Color::Black);
     double zoom_level = zoom_from;
+    std::time_t t0 = std::time(nullptr);
 #ifndef HEADLESS
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
-    while (zoom_level <= zoom_to && window.isOpen())
+    bool quit_on_next_frame = false;
+    while (zoom_level <= zoom_to && window.isOpen() && !quit_on_next_frame)
 #else
     while (zoom_level <= zoom_to)
 #endif
@@ -232,12 +234,20 @@ int main(int argc, char* argv[])
             sf::Event event;
             while (window.pollEvent(event))
             {
-                if (event.type == sf::Event::Closed)
+                switch (event.type)
+                {
+                case sf::Event::Closed:
                     window.close();
+                    break;
+                case sf::Event::KeyPressed:
+                    if (event.key.code == sf::Keyboard::Q)
+                        quit_on_next_frame = true;
             }
             window.clear();
             window.draw(sprite);
             window.display();
+            }
+            sf::sleep(sf::milliseconds(1000));
         }
 #endif
         for (std::thread& thread : threads)
@@ -251,8 +261,14 @@ int main(int argc, char* argv[])
         ++file_index;
         zoom_level = zoom_level * zoom_factor + zoom_increment;
 
+        std::time_t now = std::time(nullptr);
+        auto dt = now - t0;
         config["zoom"]["from"] = zoom_level;
         config["checkpoint"]["file_index"] = file_index;
+        config["checkpoint"]["zoom"] = 1.0 / scale_factor.get_d();
+        config["checkpoint"]["t0"] = get_iso_timestamp(t0);
+        config["checkpoint"]["now"] = get_iso_timestamp(now);
+        config["checkpoint"]["elapsed_secs"] = dt;
         config["checkpoint"]["zoom"] = 1.0 / scale_factor.get_d();
         std::ofstream checkpoint("checkpoint.yaml", std::ios::trunc);
         checkpoint << config;
