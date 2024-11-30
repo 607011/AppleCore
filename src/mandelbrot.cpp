@@ -196,9 +196,13 @@ int main(int argc, char* argv[])
     mpf_set_default_prec(min_precision_bits);
     sf::Image image;
     image.create(width, height, sf::Color::Black);
+    double zoom_level = zoom_from;
+#ifndef HEADLESS
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
-double zoom_level = zoom_from;
     while (zoom_level <= zoom_to && window.isOpen())
+#else
+    while (zoom_level <= zoom_to)
+#endif
     {
         mpf_class scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
         mpf_class real_start = c_real - width / 2.0 * scale_factor;
