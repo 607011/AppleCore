@@ -48,19 +48,19 @@ unsigned long long max_iterations_limit = 1'500'000'000ULL;
 std::string out_file = "mandelbrot.png";
 const char* WINDOW_NAME = "AppleCore";
 
-unsigned long long mandelbrot(mpf_class const& c_real, mpf_class const& c_imag, const unsigned long long max_iterations)
+unsigned long long mandelbrot(mpf_class const& x0, mpf_class const& y0, const unsigned long long max_iterations)
 {
-    mpf_class z_real = 0;
-    mpf_class z_imag = 0;
+    mpf_class x = 0;
+    mpf_class y = 0;
+    mpf_class x2 = 0;
+    mpf_class y2 = 0;
     unsigned long long iterations = 0ULL;
-    while (iterations < max_iterations)
+    while (x2 + y2 <= 4 && iterations < max_iterations)
     {
-        mpf_class z_real_temp = z_real * z_real - z_imag * z_imag;
-        mpf_class z_imag_temp = 2 * z_real * z_imag;
-        z_real = z_real_temp + c_real;
-        z_imag = z_imag_temp + c_imag;
-        if (z_real * z_real + z_imag * z_imag > 4)
-            break;
+        y = 2 * x * y + y0;
+        x = x2 - y2 + x0;
+        x2 = x * x;
+        y2 = y * y;
         ++iterations;
     }
     return iterations;
