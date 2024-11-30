@@ -44,12 +44,14 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x
     GIT_SHALLOW ON
     EXCLUDE_FROM_ALL
-    SYSTEM)
+)
+set(SFML_BUILD_AUDIO FALSE)
+set(SFML_BUILD_NETWORK FALSE)
 FetchContent_MakeAvailable(SFML)
 
 add_definitions(-DPROJECT_NAME="${CMAKE_PROJECT_NAME}" -DPROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
 if (DEFINED HEADLESS)
-  add_definitions(-DHEADLESS)
+  add_definitions(-DHEADLESS=1)
 endif()
 
 set(MANDELBROT_SOURCES 
@@ -62,7 +64,7 @@ add_executable(mandelbrot ${MANDELBROT_SOURCES})
 target_include_directories(mandelbrot
   PRIVATE ${PROJECT_INCLUDE_DIRS}
   build
-  PUBLIC ${SFML_INCLUDE_DIRS}
+  PUBLIC
   ${GMP_INCLUDE_DIRS}
 )
 
