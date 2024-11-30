@@ -13,6 +13,8 @@
 #include <gmpxx.h>
 #include <yaml-cpp/yaml.h>
 
+#include "util.hpp"
+
 using palette_t = std::vector<sf::Color>;
 
 class thsds_numpunct : public std::numpunct<char>
@@ -155,38 +157,6 @@ void parse_config_file(std::string const& config_file)
 static std::mutex image_mutex;
 static int completed_rows = 0;
 
-sf::Color get_rainbow_color(double value)
-{
-    int hue = static_cast<int>(value * 360);
-    hue %= 360;
-    int r, g, b;
-    if (hue < 60)
-    {
-        r = 255;
-        g = hue * 4 + 3 * (255 - hue);
-        b = 0;
-    }
-    else if (hue < 180)
-    {
-        r = (180 - hue) * 3 + 0;
-        g = 255;
-        b = hue * 4 + 3 * (255 - hue);
-    }
-    else if (hue < 300)
-    {
-        r = 0;
-        g = (hue - 180) * 3 + 0;
-        b = 255;
-    }
-    else
-    {
-        r = hue * 4 + 3 * (255 - hue);
-        g = 0;
-        b = (360 - hue) * 3 + 0;
-    }
-    return sf::Color(static_cast<sf::Uint8>(r), static_cast<sf::Uint8>(g), static_cast<sf::Uint8>(b));
-}
-
 void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_factor, mpf_class const& real_start,
                                     mpf_class const& imag_start, int start_row, int end_row,
                                     const unsigned long long max_iterations)
@@ -245,6 +215,7 @@ int main(int argc, char* argv[])
         {
             std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height)
                       << "%)\x1b[K" << std::flush;
+#ifndef HEADLESS
             image_mutex.lock();
             sf::Texture texture;
             texture.loadFromImage(image);
@@ -259,6 +230,7 @@ int main(int argc, char* argv[])
             window.clear();
             window.draw(sprite);
             window.display();
+#endif
         }
         for (std::thread& thread : threads)
         {

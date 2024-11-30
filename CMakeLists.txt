@@ -48,9 +48,13 @@ FetchContent_Declare(SFML
 FetchContent_MakeAvailable(SFML)
 
 add_definitions(-DPROJECT_NAME="${CMAKE_PROJECT_NAME}" -DPROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
+if (DEFINED HEADLESS)
+  add_definitions(-DHEADLESS)
+endif()
 
 set(MANDELBROT_SOURCES 
   src/mandelbrot.cpp
+  src/util.cpp
 )
 
 add_executable(mandelbrot ${MANDELBROT_SOURCES})
