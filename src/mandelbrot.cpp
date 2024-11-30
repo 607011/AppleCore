@@ -211,11 +211,11 @@ int main(int argc, char* argv[])
             threads.emplace_back(calculate_mandelbrot_row_range, std::ref(image), scale_factor, real_start, imag_start,
                                  start_row, end_row, max_iterations);
         }
-        while (completed_rows < height)
+#ifndef HEADLESS
+        while (completed_rows < height && window.isOpen())
         {
             std::cout << "\r" << completed_rows << " (" << std::setprecision(3) << (100.0 * completed_rows / height)
                       << "%)\x1b[K" << std::flush;
-#ifndef HEADLESS
             image_mutex.lock();
             sf::Texture texture;
             texture.loadFromImage(image);
@@ -230,8 +230,8 @@ int main(int argc, char* argv[])
             window.clear();
             window.draw(sprite);
             window.display();
-#endif
         }
+#endif
         for (std::thread& thread : threads)
         {
             thread.join();
