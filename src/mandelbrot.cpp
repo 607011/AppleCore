@@ -224,7 +224,7 @@ int main(int argc, char* argv[])
 #ifndef HEADLESS
         while (completed_rows < height && window.isOpen())
         {
-            std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(3) << (100.0 * completed_rows / height)
+            std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(1) << (100.0 * completed_rows / height)
                       << "%)\x1b[K" << std::flush;
             image_mutex.lock();
             sf::Texture texture;
@@ -242,11 +242,14 @@ int main(int argc, char* argv[])
                 case sf::Event::KeyPressed:
                     if (event.key.code == sf::Keyboard::Q)
                         quit_on_next_frame = true;
+                    break;
+                default:
+                    break;
+                }
             }
             window.clear();
             window.draw(sprite);
             window.display();
-            }
             sf::sleep(sf::milliseconds(1000));
         }
 #endif
