@@ -10,13 +10,14 @@ This software generates a series of images around a given center point of the Ma
 
 ```
 apt install \
+  libgmp-dev \
   libx11-dev \
   libxrandr-dev \
   libxcursor-dev \
   libfreetype-dev \
   libudev-dev \
   libflac-dev \
-  libgmp-dev
+  libgl-dev
 ```
 
 ## Build

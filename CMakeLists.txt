@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(mandelbrot
-        VERSION 0.0.1
+        VERSION 0.9.0
         DESCRIPTION "Mandelbrot set deep zoomer"
         LANGUAGES CXX)
 
@@ -50,6 +50,7 @@ FetchContent_MakeAvailable(SFML)
 add_definitions(-DPROJECT_NAME="${CMAKE_PROJECT_NAME}" -DPROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
 if (DEFINED HEADLESS)
   add_definitions(-DHEADLESS=1)
+  set(SFML_BUILD_WINDOW FALSE)
 endif()
 set(SFML_BUILD_AUDIO FALSE)
 set(SFML_BUILD_NETWORK FALSE)
