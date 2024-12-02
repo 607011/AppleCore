@@ -31,8 +31,6 @@ class thsds_numpunct : public std::numpunct<char>
     }
 };
 
-palette_t create_grayscale_palette(void);
-
 int width = 4096;
 int height = 2160;
 double zoom_from = 0.5;
