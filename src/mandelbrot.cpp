@@ -33,8 +33,8 @@ class thsds_numpunct : public std::numpunct<char>
 
 int width = 4096;
 int height = 2160;
-double zoom_from = 0.5;
-double zoom_to = 1.84e100;
+double zoom_from = 0.25;
+double zoom_to = 1000;
 double zoom_factor = 1.1;
 double zoom_increment = 0;
 int file_index = 0;
