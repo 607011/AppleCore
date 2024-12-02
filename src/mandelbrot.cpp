@@ -6,7 +6,6 @@
 #include <iomanip>
 #include <iostream>
 #include <locale>
-#include <mutex>
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -160,7 +159,6 @@ void parse_config_file(std::string const& config_file)
     }
 }
 
-static std::mutex image_mutex;
 static std::atomic<int> completed_rows = 0;
 
 void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_factor, mpf_class const& real_start,
@@ -177,7 +175,6 @@ void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_fac
             const double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
             image.setPixel(x, y, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
         }
-        std::lock_guard<std::mutex> guard(image_mutex);
         ++completed_rows;
     }
 }
@@ -224,17 +221,13 @@ int main(int argc, char* argv[])
         while (completed_rows < height && window.isOpen())
         {
             int last_completed_rows = completed_rows;
-            while (completed_rows == last_completed_rows && window.isOpen())
+            while (completed_rows <= last_completed_rows && window.isOpen())
             {
                 sf::sleep(sf::milliseconds(100));
             }
             std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(1)
                       << (100.0 * completed_rows / height) << "%)\x1b[K" << std::flush;
-            image_mutex.lock();
-            sf::Texture texture;
-            texture.loadFromImage(image);
-            image_mutex.unlock();
-            sf::Sprite sprite(texture);
+
             sf::Event event;
             while (window.pollEvent(event))
             {
@@ -251,7 +244,9 @@ int main(int argc, char* argv[])
                     break;
                 }
             }
-            window.clear();
+            sf::Texture texture;
+            texture.loadFromImage(image);
+            sf::Sprite sprite(texture);
             window.draw(sprite);
             window.display();
         }
