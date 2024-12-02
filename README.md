@@ -4,7 +4,23 @@
 
 This software generates a series of images around a given center point of the Mandelbrot set and saves them to image files, e.g. PNG or JPG. Because it calculates with arbitrary precision floating-point numbers, theoretically any zoom level is possible.
 
+### Prerequisites
+
+### Ubuntu Linux 22.04
+
+```
+apt install \
+  libx11-dev \
+  libxrandr-dev \
+  libxcursor-dev \
+  libfreetype-dev \
+  libudev-dev \
+  libflac-dev \
+  libgmp-dev
+```
+
 ## Build
+
 
 ### macOS, Linux
 
