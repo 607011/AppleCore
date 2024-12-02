@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.22)
 
 project(mandelbrot
         VERSION 0.0.1
@@ -44,15 +44,15 @@ FetchContent_Declare(SFML
     GIT_TAG 2.6.x
     GIT_SHALLOW ON
     EXCLUDE_FROM_ALL
-)
-set(SFML_BUILD_AUDIO FALSE)
-set(SFML_BUILD_NETWORK FALSE)
+    SYSTEM)
 FetchContent_MakeAvailable(SFML)
 
 add_definitions(-DPROJECT_NAME="${CMAKE_PROJECT_NAME}" -DPROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
 if (DEFINED HEADLESS)
   add_definitions(-DHEADLESS=1)
 endif()
+set(SFML_BUILD_AUDIO FALSE)
+set(SFML_BUILD_NETWORK FALSE)
 
 set(MANDELBROT_SOURCES 
   src/mandelbrot.cpp
@@ -61,10 +61,12 @@ set(MANDELBROT_SOURCES
 
 add_executable(mandelbrot ${MANDELBROT_SOURCES})
 
+target_compile_features(mandelbrot PRIVATE cxx_std_17)
+
 target_include_directories(mandelbrot
   PRIVATE ${PROJECT_INCLUDE_DIRS}
   build
-  PUBLIC
+  PUBLIC ${SFML_INCLUDE_DIRS}
   ${GMP_INCLUDE_DIRS}
 )
 
