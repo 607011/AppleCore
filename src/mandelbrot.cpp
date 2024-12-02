@@ -1,3 +1,4 @@
+#include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -160,7 +161,7 @@ void parse_config_file(std::string const& config_file)
 }
 
 static std::mutex image_mutex;
-static int completed_rows = 0;
+static std::atomic<int> completed_rows = 0;
 
 void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_factor, mpf_class const& real_start,
                                     mpf_class const& imag_start, int start_row, int end_row,
@@ -190,7 +191,7 @@ int main(int argc, char* argv[])
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
-    std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;    
+    std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
     mpf_set_default_prec(min_precision_bits);
     sf::Image image;
     image.create(width, height, sf::Color::Black);
@@ -222,8 +223,13 @@ int main(int argc, char* argv[])
 #ifndef HEADLESS
         while (completed_rows < height && window.isOpen())
         {
-            std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(1) << (100.0 * completed_rows / height)
-                      << "%)\x1b[K" << std::flush;
+            int last_completed_rows = completed_rows;
+            while (completed_rows == last_completed_rows && window.isOpen())
+            {
+                sf::sleep(sf::milliseconds(100));
+            }
+            std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(1)
+                      << (100.0 * completed_rows / height) << "%)\x1b[K" << std::flush;
             image_mutex.lock();
             sf::Texture texture;
             texture.loadFromImage(image);
@@ -248,7 +254,6 @@ int main(int argc, char* argv[])
             window.clear();
             window.draw(sprite);
             window.display();
-            sf::sleep(sf::milliseconds(1000));
         }
 #endif
         for (std::thread& thread : threads)
