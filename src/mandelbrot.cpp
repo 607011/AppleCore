@@ -2,7 +2,6 @@
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
-#include <format>
 #include <fstream>
 #include <functional>
 #include <iomanip>
