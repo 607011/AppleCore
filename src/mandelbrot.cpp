@@ -2,12 +2,14 @@
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
+#include <format>
 #include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
 #include <locale>
 #include <sstream>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -174,10 +176,24 @@ void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_fac
             mpf_class const& pixel_imag = imag_start + y * scale_factor;
             const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, max_iterations);
             const double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
-            image.setPixel(x, y, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
+            image.setPixel(x, y - start_row, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
         }
         ++completed_rows;
     }
+}
+
+sf::Image stitch_images(const std::vector<sf::Image>& partial_images, unsigned int height)
+{
+    unsigned int width = partial_images[0].getSize().x;
+    unsigned int n = partial_images.size();
+    unsigned int single_image_height = height / n;
+    sf::Image result_image;
+    result_image.create(width, height);
+    for (unsigned int i = 0; i < n; ++i)
+    {
+        result_image.copy(partial_images.at(i), 0, i * single_image_height, sf::IntRect(0, 0, width, single_image_height));
+    }
+    return result_image;
 }
 
 int main(int argc, char* argv[])
@@ -191,13 +207,27 @@ int main(int argc, char* argv[])
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
     mpf_set_default_prec(min_precision_bits);
-    sf::Image image;
-    image.create(width, height, sf::Color::Black);
     double zoom_level = zoom_from;
+    if (height % num_threads != 0)
+    {
+        throw std::runtime_error(
+            std::format("Image height ({}) must be divisible by number of threads {}.", height, num_threads));
+    }
+    std::vector<sf::Image> images;
+    for (int i = 0; i < num_threads; ++i)
+    {
+        sf::Image image;
+        int start_row = i * height / num_threads;
+        int end_row = (i + 1) * height / num_threads;
+        image.create(width, end_row - start_row, sf::Color::Transparent);
+        images.push_back(image);
+    }
     std::time_t t0 = std::time(nullptr);
 #ifndef HEADLESS
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
     bool quit_on_next_frame = false;
+    window.clear();
+    window.display();
     while (zoom_level <= zoom_to && window.isOpen() && !quit_on_next_frame)
 #else
     while (zoom_level <= zoom_to)
@@ -211,12 +241,14 @@ int main(int argc, char* argv[])
         std::cout << "Zoom: " << std::scientific << std::setprecision(24) << 1.0 / scale_factor.get_d()
                   << "; max. iterations: " << max_iterations << std::endl;
         completed_rows = 0;
+        sf::Image image;
+        image.create(width, height, sf::Color::Transparent);
         for (int i = 0; i < num_threads; ++i)
         {
             int start_row = i * height / num_threads;
             int end_row = (i + 1) * height / num_threads;
-            threads.emplace_back(calculate_mandelbrot_row_range, std::ref(image), scale_factor, real_start, imag_start,
-                                 start_row, end_row, max_iterations);
+            threads.emplace_back(calculate_mandelbrot_row_range, std::ref(images[i]), scale_factor, real_start,
+                                 imag_start, start_row, end_row, max_iterations);
         }
 #ifndef HEADLESS
         while (completed_rows < height && window.isOpen())
@@ -245,9 +277,12 @@ int main(int argc, char* argv[])
                     break;
                 }
             }
+
             sf::Texture texture;
+            sf::Image const& image = stitch_images(images, height);
             texture.loadFromImage(image);
             sf::Sprite sprite(texture);
+
             window.draw(sprite);
             window.display();
         }
