@@ -182,11 +182,11 @@ void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_fac
     }
 }
 
-sf::Image stitch_images(const std::vector<sf::Image>& partial_images, unsigned int height)
+sf::Image stitch_images(std::vector<sf::Image> const& partial_images, int height)
 {
-    unsigned int width = partial_images[0].getSize().x;
-    unsigned int n = partial_images.size();
-    unsigned int single_image_height = height / n;
+    int width = static_cast<int>(partial_images.front().getSize().x);
+    int n = static_cast<int>(partial_images.size());
+    int single_image_height = height / n;
     sf::Image result_image;
     result_image.create(width, height);
     for (unsigned int i = 0; i < n; ++i)
