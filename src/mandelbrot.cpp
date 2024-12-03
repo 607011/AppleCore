@@ -213,11 +213,6 @@ int main(int argc, char* argv[])
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
     mpf_set_default_prec(min_precision_bits);
     double zoom_level = zoom_from;
-    if (height % num_threads != 0)
-    {
-        throw std::runtime_error(
-            std::format("Image height ({}) must be divisible by number of threads {}.", height, num_threads));
-    }
     std::vector<sf::Image> images;
     for (int i = 0; i < num_threads; ++i)
     {
