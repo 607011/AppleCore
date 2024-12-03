@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
             }
 
             sf::Texture texture;
-            sf::Image const& image = stitch_images(images, height);
+            image = stitch_images(images, height);
             texture.loadFromImage(image);
             sf::Sprite sprite(texture);
 
