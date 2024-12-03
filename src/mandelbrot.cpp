@@ -203,6 +203,11 @@ int main(int argc, char* argv[])
         parse_config_file(argv[1]);
     }
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
+    if (height % num_threads != 0)
+    {
+        std::cerr << "Configuration error: image height (" << height << ") must be divisible by number of threads (" << num_threads << ")." << std::endl;
+        return EXIT_FAILURE;
+    }
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
