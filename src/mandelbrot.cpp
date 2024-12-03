@@ -231,8 +231,6 @@ int main(int argc, char* argv[])
 #ifndef HEADLESS
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
     bool quit_on_next_frame = false;
-    window.clear();
-    window.display();
     while (zoom_level <= zoom_to && window.isOpen() && !quit_on_next_frame)
 #else
     while (zoom_level <= zoom_to)
