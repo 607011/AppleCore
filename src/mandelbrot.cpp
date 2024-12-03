@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cmath>
+#include <ctime>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
