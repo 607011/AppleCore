@@ -52,8 +52,19 @@ std::string get_iso_timestamp(std::time_t t)
     return oss.str();
 }
 
-
 std::string get_current_iso_timestamp(void)
 {
     return get_iso_timestamp(std::time(nullptr));
+}
+
+std::string replace_substring(std::string const& str, const std::string& substring, std::string const& value)
+{
+    std::string result = str;
+    std::size_t pos = result.find(substring);
+    while (pos != std::string::npos)
+    {
+        result.replace(pos, substring.length(), value);
+        pos = result.find(substring, pos + value.length());
+    }
+    return result;
 }

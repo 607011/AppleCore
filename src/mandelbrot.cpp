@@ -76,20 +76,6 @@ unsigned long long calculate_max_iterations(double zoom_level)
     return max_iterations;
 }
 
-std::string replace_substring(const std::string& str, const std::string& substring, int value, int padding = 6)
-{
-    std::string result = str;
-    std::size_t pos = result.find(substring);
-    while (pos != std::string::npos)
-    {
-        std::stringstream ss;
-        ss << std::setw(padding) << std::setfill('0') << value;
-        result.replace(pos, substring.length(), ss.str());
-        pos = result.find(substring, pos + static_cast<std::size_t>(padding));
-    }
-    return result;
-}
-
 void parse_config_file(std::string const& config_file)
 {
     config = YAML::LoadFile(config_file);
