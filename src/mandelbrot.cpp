@@ -32,17 +32,17 @@ class thsds_numpunct : public std::numpunct<char>
     }
 };
 
-int width = 4096;
+int width = 3840;
 int height = 2160;
 double zoom_from = 0.25;
 double zoom_to = 1000;
-double zoom_factor = 1.1;
-double zoom_increment = 0;
+double zoom_factor = 1.0;
+double zoom_increment = 0.12;
 int file_index = 0;
-mpf_class c_real("-0.75", 256);
-mpf_class c_imag("0.0", 256);
-mp_bitcnt_t min_precision_bits = 256;
-unsigned long long base_iterations = 10'000;
+mpf_class c_real(-0.75, 64);
+mpf_class c_imag(0.0, 64);
+mp_bitcnt_t min_precision_bits = 64;
+unsigned long long base_iterations = 1000;
 double log_scale_factor = 0.1;
 palette_t palette;
 unsigned long long max_iterations_limit = 1'500'000'000ULL;
