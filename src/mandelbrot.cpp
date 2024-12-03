@@ -274,7 +274,11 @@ int main(int argc, char* argv[])
         {
             thread.join();
         }
-        std::string png_file = replace_substring(out_file, "%z", file_index);
+        std::string png_file = replace_substring(out_file, "{file_index}", std::to_string(file_index));
+        png_file = replace_substring(png_file, "{max_iterations}", std::to_string(max_iterations));
+        png_file = replace_substring(png_file, "{log_scale_factor}", std::to_string(log_scale_factor));
+        png_file = replace_substring(png_file, "{zoom_level}", std::to_string(zoom_level));
+        png_file = replace_substring(png_file, "{size}", std::to_string(width) + 'x' + std::to_string(height));
         std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
         image.saveToFile(png_file);
 
