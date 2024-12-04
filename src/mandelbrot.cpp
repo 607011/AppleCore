@@ -1,7 +1,7 @@
 #include <atomic>
 #include <cmath>
-#include <ctime>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <functional>
 #include <iomanip>
@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <SFML/Graphics.hpp>
+#include <SFML/Window/Clipboard.hpp>
 #include <gmpxx.h>
 #include <yaml-cpp/yaml.h>
 
@@ -40,8 +41,8 @@ double zoom_to = 1000;
 double zoom_factor = 1.0;
 double zoom_increment = 0.12;
 int file_index = 0;
-mpf_class c_real(-0.75, 64);
-mpf_class c_imag(0.0, 64);
+mpf_class c_real(-0.75, 2048);
+mpf_class c_imag(0.0, 2048);
 mp_bitcnt_t min_precision_bits = 64;
 unsigned long long base_iterations = 1000;
 double log_scale_factor = 0.1;
@@ -50,6 +51,17 @@ unsigned long long max_iterations_limit = 1'500'000'000ULL;
 std::string out_file = "mandelbrot.png";
 const char* WINDOW_NAME = "AppleCore";
 YAML::Node config;
+
+struct thread_param
+{
+    sf::Image& image;
+    mpf_class const& scale_factor;
+    mpf_class const& real_start;
+    mpf_class const& imag_start;
+    int start_row;
+    int end_row;
+    const unsigned long long max_iterations;
+};
 
 unsigned long long mandelbrot(mpf_class const& x0, mpf_class const& y0, const unsigned long long max_iterations)
 {
@@ -149,19 +161,18 @@ void parse_config_file(std::string const& config_file)
 
 static std::atomic<int> completed_rows = 0;
 
-void calculate_mandelbrot_row_range(sf::Image& image, mpf_class const& scale_factor, mpf_class const& real_start,
-                                    mpf_class const& imag_start, int start_row, int end_row,
-                                    const unsigned long long max_iterations)
+void calculate_mandelbrot_row_range(thread_param p)
 {
-    for (int y = start_row; y < end_row; ++y)
+    for (int y = p.start_row; y < p.end_row; ++y)
     {
         for (int x = 0; x < width; ++x)
         {
-            mpf_class const& pixel_real = real_start + x * scale_factor;
-            mpf_class const& pixel_imag = imag_start + y * scale_factor;
-            const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, max_iterations);
-            const double hue = static_cast<double>(iterations) / static_cast<double>(max_iterations);
-            image.setPixel(x, y - start_row, (iterations < max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
+            mpf_class const& pixel_real = p.real_start + x * p.scale_factor;
+            mpf_class const& pixel_imag = p.imag_start + y * p.scale_factor;
+            const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, p.max_iterations);
+            const double hue = static_cast<double>(iterations) / static_cast<double>(p.max_iterations);
+            p.image.setPixel(x, y - p.start_row,
+                             (iterations < p.max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
         }
         ++completed_rows;
     }
@@ -174,9 +185,10 @@ sf::Image stitch_images(std::vector<sf::Image> const& partial_images, int height
     int single_image_height = height / n;
     sf::Image result_image;
     result_image.create(width, height);
-    for (unsigned int i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i)
     {
-        result_image.copy(partial_images.at(i), 0, i * single_image_height, sf::IntRect(0, 0, width, single_image_height));
+        result_image.copy(partial_images.at(i), 0, i * single_image_height,
+                          sf::IntRect(0, 0, width, single_image_height));
     }
     return result_image;
 }
@@ -190,7 +202,8 @@ int main(int argc, char* argv[])
     int num_threads = static_cast<int>(std::thread::hardware_concurrency());
     if (height % num_threads != 0)
     {
-        std::cerr << "Configuration error: image height (" << height << ") must be divisible by number of threads (" << num_threads << ")." << std::endl;
+        std::cerr << "Configuration error: image height (" << height << ") must be divisible by number of threads ("
+                  << num_threads << ")." << std::endl;
         return EXIT_FAILURE;
     }
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
@@ -230,19 +243,37 @@ int main(int argc, char* argv[])
         {
             int start_row = i * height / num_threads;
             int end_row = (i + 1) * height / num_threads;
-            threads.emplace_back(calculate_mandelbrot_row_range, std::ref(images[i]), scale_factor, real_start,
-                                 imag_start, start_row, end_row, max_iterations);
+            threads.emplace_back(calculate_mandelbrot_row_range,
+                                 thread_param{std::ref(images[i]), scale_factor, real_start, imag_start, start_row,
+                                              end_row, max_iterations});
         }
 #ifndef HEADLESS
+        sf::Vector2i last_mouse_pos = sf::Mouse::getPosition(window);
         while (completed_rows < height && window.isOpen())
         {
             int last_completed_rows = completed_rows;
-            while (completed_rows <= last_completed_rows && window.isOpen())
+            while (completed_rows <= last_completed_rows && window.isOpen() &&
+                   last_mouse_pos == sf::Mouse::getPosition(window))
             {
                 sf::sleep(sf::milliseconds(100));
             }
+            last_mouse_pos = sf::Mouse::getPosition(window);
             std::cout << "\r" << completed_rows << " (" << std::fixed << std::setprecision(1)
                       << (100.0 * completed_rows / height) << "%)\x1b[K" << std::flush;
+
+            sf::Vector2i mouse_pos = sf::Mouse::getPosition(window);
+            std::ostringstream coords_ss;
+            mpf_class const& pixel_real = real_start + mouse_pos.x * scale_factor;
+            mpf_class const& pixel_imag = imag_start + mouse_pos.y * scale_factor;
+            mp_exp_t x_exp, y_exp;
+            std::string const& x_coord = pixel_real.get_str(x_exp, 10, 256);
+            std::string const& y_coord = pixel_imag.get_str(y_exp, 10, 256);
+            coords_ss << "r: 0." << x_coord;
+            if (x_exp != 0)
+                coords_ss << 'e' << x_exp;
+            coords_ss << "\n" << "i: 0." << y_coord;
+            if (y_exp != 0)
+                coords_ss << 'e' << y_exp;
 
             sf::Event event;
             while (window.pollEvent(event))
@@ -253,8 +284,14 @@ int main(int argc, char* argv[])
                     window.close();
                     break;
                 case sf::Event::KeyPressed:
-                    if (event.key.code == sf::Keyboard::Q)
+                    if ((event.key.system || event.key.control) && event.key.code == sf::Keyboard::C)
+                    {
+                        sf::Clipboard::setString(coords_ss.str());
+                    }
+                    else if (event.key.code == sf::Keyboard::Q)
+                    {
                         quit_on_next_frame = true;
+                    }
                     break;
                 default:
                     break;
@@ -264,8 +301,10 @@ int main(int argc, char* argv[])
             sf::Texture texture;
             image = stitch_images(images, height);
             texture.loadFromImage(image);
+            texture.setSmooth(false);
             sf::Sprite sprite(texture);
 
+            window.clear();
             window.draw(sprite);
             window.display();
         }
