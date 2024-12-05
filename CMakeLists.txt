@@ -1,12 +1,22 @@
 cmake_minimum_required(VERSION 3.22)
 
 project(mandelbrot
-        VERSION 0.9.0
+        VERSION 0.9.2
         DESCRIPTION "Mandelbrot set deep zoomer"
         LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# if(POLICY CMP0167)
+#   cmake_policy(SET CMP0167 NEW)
+# endif()
+
+set(BOOST_ROOT $ENV{BOOST_ROOT})
+find_package(Boost 1.81.0 NO_MODULE REQUIRED)
+message(STATUS "Boost include dirs: ${Boost_INCLUDE_DIRS}")
+message(STATUS "Boost lib dirs: ${Boost_LIBRARY_DIRS}")
+message(STATUS "Boost libs: ${Boost_LIBRARIES}")
 
 if(UNIX)
   set(CMAKE_CXX_FLAGS_PROFILING
@@ -15,7 +25,7 @@ if(UNIX)
     FORCE)
   set(CMAKE_CXX_FLAGS "-pthread -Wno-deprecated-declarations")
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g3 -ggdb -DDEBUG -pedantic -Wall -Wextra -Wreorder -Wuninitialized -Wtype-limits -Wno-pragmas")
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -Wno-deprecated")
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -Wno-deprecated -Wsign-compare")
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -Wno-deprecated -DDEBUG -ggdb")
 endif(UNIX)
 
@@ -25,8 +35,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -Wno-deprecated -DDEBUG -glldb")
 endif()
 
-find_path(GMP_INCLUDE_DIRS NAMES gmp.h)
-find_library(GMP_LIBRARY NAMES gmp libgmp)
+find_path(MPFR_INCLUDE_DIRS NAMES mpfr.h)
+find_library(MPFR_LIBRARY NAMES mpfr libmpfr)
 
 include(FetchContent)
 
@@ -67,12 +77,13 @@ target_include_directories(mandelbrot
   PRIVATE ${PROJECT_INCLUDE_DIRS}
   build
   PUBLIC ${SFML_INCLUDE_DIRS}
-  ${GMP_INCLUDE_DIRS}
+  ${Boost_INCLUDE_DIRS}
+  ${MPRF_INCLUDE_DIRS}
 )
 
 target_link_libraries(mandelbrot 
   PUBLIC 
-  ${GMP_LIBRARY}
+  ${MPFR_LIBRARY}
   yaml-cpp::yaml-cpp
   sfml-graphics
 )

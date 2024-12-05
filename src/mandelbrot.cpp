@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <cstdlib>
 #include <ctime>
 #include <fstream>
@@ -10,16 +11,19 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <SFML/Graphics.hpp>
 #include <SFML/Window/Clipboard.hpp>
-#include <gmpxx.h>
+#include <boost/multiprecision/mpfr.hpp>
 #include <yaml-cpp/yaml.h>
 
 #include "util.hpp"
 
+namespace mp = boost::multiprecision;
 using palette_t = std::vector<sf::Color>;
+using iteration_count_t = uint64_t;
 
 class thsds_numpunct : public std::numpunct<char>
 {
@@ -41,35 +45,36 @@ double zoom_to = 1000;
 double zoom_factor = 1.0;
 double zoom_increment = 0.12;
 int file_index = 0;
-mpf_class c_real(-0.75, 2048);
-mpf_class c_imag(0.0, 2048);
-mp_bitcnt_t min_precision_bits = 64;
-unsigned long long base_iterations = 1000;
+mp::mpfr_float c_real(-0.75, 2048);
+mp::mpfr_float c_imag(0.0, 2048);
+mpfr_prec_t min_precision_bits = 64;
+iteration_count_t base_iterations = 1000;
 double log_scale_factor = 0.1;
 palette_t palette;
-unsigned long long max_iterations_limit = 1'500'000'000ULL;
+iteration_count_t max_iterations_limit = 2'000'000'000ULL;
 std::string out_file = "mandelbrot.png";
+std::string checkpoint_file = "checkpoint.yaml";
 const char* WINDOW_NAME = "AppleCore";
 YAML::Node config;
 
 struct thread_param
 {
     sf::Image& image;
-    mpf_class const& scale_factor;
-    mpf_class const& real_start;
-    mpf_class const& imag_start;
+    double scale_factor;
+    mp::mpfr_float const& real_start;
+    mp::mpfr_float const& imag_start;
     int start_row;
     int end_row;
     const unsigned long long max_iterations;
 };
 
-unsigned long long mandelbrot(mpf_class const& x0, mpf_class const& y0, const unsigned long long max_iterations)
+iteration_count_t mandelbrot(mp::mpfr_float const& x0, mp::mpfr_float const& y0, const iteration_count_t max_iterations)
 {
-    mpf_class x = 0;
-    mpf_class y = 0;
-    mpf_class x2 = 0;
-    mpf_class y2 = 0;
-    unsigned long long iterations = 0ULL;
+    mp::mpfr_float x = 0;
+    mp::mpfr_float y = 0;
+    mp::mpfr_float x2 = 0;
+    mp::mpfr_float y2 = 0;
+    iteration_count_t iterations = 0ULL;
     while (x2 + y2 <= 4 && iterations < max_iterations)
     {
         y = 2 * x * y + y0;
@@ -81,10 +86,10 @@ unsigned long long mandelbrot(mpf_class const& x0, mpf_class const& y0, const un
     return iterations;
 }
 
-unsigned long long calculate_max_iterations(double zoom_level)
+iteration_count_t calculate_max_iterations(double zoom_level)
 {
-    unsigned long long max_iterations =
-        static_cast<unsigned long long>(base_iterations * std::exp(log_scale_factor * zoom_level));
+    iteration_count_t max_iterations =
+        static_cast<iteration_count_t>(base_iterations * std::exp(log_scale_factor * zoom_level));
     return max_iterations;
 }
 
@@ -98,7 +103,7 @@ void parse_config_file(std::string const& config_file)
     }
     if (config["max_iterations_limit"])
     {
-        max_iterations_limit = config["max_iterations_limit"].as<unsigned long long>();
+        max_iterations_limit = config["max_iterations_limit"].as<iteration_count_t>();
     }
     if (config["checkpoint"]["file_index"])
     {
@@ -113,16 +118,16 @@ void parse_config_file(std::string const& config_file)
     }
     if (config["center"]["r"] && config["center"]["i"])
     {
-        c_real = config["center"]["r"].as<std::string>();
-        c_imag = config["center"]["i"].as<std::string>();
+        c_real.assign(config["center"]["r"].as<std::string>());
+        c_imag.assign(config["center"]["i"].as<std::string>());
     }
     if (config["min_precision_bits"])
     {
-        min_precision_bits = config["min_precision_bits"].as<mp_bitcnt_t>();
+        min_precision_bits = config["min_precision_bits"].as<mpfr_prec_t>();
     }
     if (config["base_iterations"])
     {
-        base_iterations = config["base_iterations"].as<unsigned long long>();
+        base_iterations = config["base_iterations"].as<iteration_count_t>();
     }
     if (config["log_scale_factor"])
     {
@@ -149,7 +154,7 @@ void parse_config_file(std::string const& config_file)
             std::vector<sf::Uint8> const& rgb = parse_rgb(it.as<std::string>());
             if (rgb.size() == 3)
             {
-                palette.emplace_back(sf::Color(rgb.at(0), rgb.at(1), rgb.at(2)));
+                palette.emplace_back(rgb.at(0), rgb.at(1), rgb.at(2));
             }
         }
     }
@@ -165,14 +170,14 @@ void parse_config_file(std::string const& config_file)
 
 static std::atomic<int> completed_rows = 0;
 
-void calculate_mandelbrot_row_range(thread_param p)
+void calculate_mandelbrot_row_range(thread_param const& p)
 {
     for (int y = p.start_row; y < p.end_row; ++y)
     {
         for (int x = 0; x < width; ++x)
         {
-            mpf_class const& pixel_real = p.real_start + x * p.scale_factor;
-            mpf_class const& pixel_imag = p.imag_start + y * p.scale_factor;
+            mp::mpfr_float const& pixel_real = p.real_start + p.scale_factor * x;
+            mp::mpfr_float const& pixel_imag = p.imag_start + p.scale_factor * y;
             const unsigned long long iterations = mandelbrot(pixel_real, pixel_imag, p.max_iterations);
             const double hue = static_cast<double>(iterations) / static_cast<double>(p.max_iterations);
             p.image.setPixel(x, y - p.start_row,
@@ -210,11 +215,11 @@ int main(int argc, char* argv[])
                   << num_threads << ")." << std::endl;
         return EXIT_FAILURE;
     }
+    time_t t0 = std::time(nullptr);
     std::cout << "Generating " << width << 'x' << height << " image in " << num_threads << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
-    mpf_set_default_prec(min_precision_bits);
-    double zoom_level = zoom_from;
+    mpfr_set_default_prec(min_precision_bits);
     std::vector<sf::Image> images;
     for (int i = 0; i < num_threads; ++i)
     {
@@ -224,21 +229,26 @@ int main(int argc, char* argv[])
         image.create(width, end_row - start_row, sf::Color::Transparent);
         images.push_back(image);
     }
-    std::time_t t0 = std::time(nullptr);
+    double zoom_level = zoom_from;
 #ifndef HEADLESS
     sf::RenderWindow window(sf::VideoMode(width, height), "AppleCore");
+    sf::Event event;
+    window.clear(sf::Color::Green);
+    window.display();
+    (void)window.pollEvent(event);
     bool quit_on_next_frame = false;
     while (zoom_level <= zoom_to && window.isOpen() && !quit_on_next_frame)
 #else
     while (zoom_level <= zoom_to)
 #endif
     {
-        mpf_class scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
-        mpf_class real_start = c_real - width / 2.0 * scale_factor;
-        mpf_class imag_start = c_imag - height / 2.0 * scale_factor;
+        double scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(width, height);
+        mp::mpfr_float real_start = c_real - width / 2.0 * scale_factor;
+        mp::mpfr_float imag_start = c_imag - height / 2.0 * scale_factor;
         const unsigned long long max_iterations = std::min(max_iterations_limit, calculate_max_iterations(zoom_level));
         std::vector<std::thread> threads;
-        std::cout << "Zoom: " << std::scientific << std::setprecision(24) << 1.0 / scale_factor.get_d()
+        std::cout << "Zoom: " << std::setprecision(6) << std::defaultfloat << zoom_level
+                  << "; Δpixel: " << std::scientific << std::setprecision(24) << scale_factor
                   << "; max. iterations: " << max_iterations << std::endl;
         completed_rows = 0;
         sf::Image image;
@@ -247,9 +257,13 @@ int main(int argc, char* argv[])
         {
             int start_row = i * height / num_threads;
             int end_row = (i + 1) * height / num_threads;
-            threads.emplace_back(calculate_mandelbrot_row_range,
-                                 thread_param{std::ref(images[i]), scale_factor, real_start, imag_start, start_row,
-                                              end_row, max_iterations});
+            threads.emplace_back(calculate_mandelbrot_row_range, thread_param{.image = images[i],
+                                                                              .scale_factor = scale_factor,
+                                                                              .real_start = real_start,
+                                                                              .imag_start = imag_start,
+                                                                              .start_row = start_row,
+                                                                              .end_row = end_row,
+                                                                              .max_iterations = max_iterations});
         }
 #ifndef HEADLESS
         sf::Vector2i last_mouse_pos = sf::Mouse::getPosition(window);
@@ -267,19 +281,10 @@ int main(int argc, char* argv[])
 
             sf::Vector2i mouse_pos = sf::Mouse::getPosition(window);
             std::ostringstream coords_ss;
-            mpf_class const& pixel_real = real_start + mouse_pos.x * scale_factor;
-            mpf_class const& pixel_imag = imag_start + mouse_pos.y * scale_factor;
-            mp_exp_t x_exp, y_exp;
-            std::string const& x_coord = pixel_real.get_str(x_exp, 10, 256);
-            std::string const& y_coord = pixel_imag.get_str(y_exp, 10, 256);
-            coords_ss << "r: 0." << x_coord;
-            if (x_exp != 0)
-                coords_ss << 'e' << x_exp;
-            coords_ss << "\n" << "i: 0." << y_coord;
-            if (y_exp != 0)
-                coords_ss << 'e' << y_exp;
+            mp::mpfr_float const& pixel_real = real_start + mouse_pos.x * scale_factor;
+            mp::mpfr_float const& pixel_imag = imag_start + mouse_pos.y * scale_factor;
+            coords_ss << "r: " << pixel_real << "\n" << "i: " << pixel_imag;
 
-            sf::Event event;
             while (window.pollEvent(event))
             {
                 switch (event.type)
@@ -334,7 +339,7 @@ int main(int argc, char* argv[])
         auto dt = now - t0;
         config["zoom"]["from"] = zoom_level;
         config["checkpoint"]["file_index"] = file_index;
-        config["checkpoint"]["zoom"] = 1.0 / scale_factor.get_d();
+        config["checkpoint"]["zoom"] = 1.0 / scale_factor;
         config["checkpoint"]["t0"] = get_iso_timestamp(t0);
         config["checkpoint"]["now"] = get_iso_timestamp(now);
         config["checkpoint"]["elapsed_secs"] = dt;
