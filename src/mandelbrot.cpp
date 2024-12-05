@@ -317,7 +317,9 @@ int main(int argc, char* argv[])
         {
             thread.join();
         }
-        std::string png_file = replace_substring(out_file, "{file_index}", std::to_string(file_index));
+        std::string fidx = std::to_string(file_index);
+        fidx = std::string(6U - fidx.length(), '0') + fidx;
+        std::string png_file = replace_substring(out_file, "{file_index}", fidx);
         png_file = replace_substring(png_file, "{max_iterations}", std::to_string(max_iterations));
         png_file = replace_substring(png_file, "{log_scale_factor}", std::to_string(log_scale_factor));
         png_file = replace_substring(png_file, "{zoom_level}", std::to_string(zoom_level));
