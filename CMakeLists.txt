@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.22)
+cmake_minimum_required(VERSION 3.16)
 
 project(mandelbrot
         VERSION 0.9.2
@@ -8,15 +8,9 @@ project(mandelbrot
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# if(POLICY CMP0167)
-#   cmake_policy(SET CMP0167 NEW)
-# endif()
-
 set(BOOST_ROOT $ENV{BOOST_ROOT})
 find_package(Boost 1.81.0 NO_MODULE REQUIRED)
 message(STATUS "Boost include dirs: ${Boost_INCLUDE_DIRS}")
-message(STATUS "Boost lib dirs: ${Boost_LIBRARY_DIRS}")
-message(STATUS "Boost libs: ${Boost_LIBRARIES}")
 
 if(UNIX)
   set(CMAKE_CXX_FLAGS_PROFILING
@@ -65,7 +59,7 @@ set(SFML_BUILD_AUDIO FALSE)
 set(SFML_BUILD_NETWORK FALSE)
 
 set(MANDELBROT_SOURCES 
-  src/mandelbrot.cpp
+  src/main.cpp
   src/util.cpp
 )
 
