@@ -157,6 +157,10 @@ void parse_config_file(std::string const& config_file)
     {
         out_file = config["out_file"].as<std::string>();
     }
+    if (config["checkpoint_file"])
+    {
+        checkpoint_file = config["checkpoint_file"].as<std::string>();
+    }
 }
 
 static std::atomic<int> completed_rows = 0;
@@ -332,8 +336,7 @@ int main(int argc, char* argv[])
         config["checkpoint"]["t0"] = get_iso_timestamp(t0);
         config["checkpoint"]["now"] = get_iso_timestamp(now);
         config["checkpoint"]["elapsed_secs"] = dt;
-        config["checkpoint"]["zoom"] = 1.0 / scale_factor.get_d();
-        std::ofstream checkpoint("checkpoint.yaml", std::ios::trunc);
+        std::ofstream checkpoint(checkpoint_file, std::ios::trunc);
         checkpoint << config;
     }
 
