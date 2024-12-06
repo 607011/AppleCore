@@ -21,11 +21,11 @@ namespace mp = boost::multiprecision;
 struct thread_param
 {
     sf::Image& image;
-    double scale_factor; 
+    const double scale_factor; 
     mp::mpfr_float const& real_start;
     mp::mpfr_float const& imag_start;
-    int start_row;
-    int end_row;
+    const int start_row;
+    const int end_row;
     const iteration_count_t max_iterations;
 };
 
