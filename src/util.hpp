@@ -6,7 +6,7 @@
 #include <SFML/Graphics.hpp>
 
 extern sf::Color get_rainbow_color(double);
-extern std::string get_iso_timestamp(std::time_t);
+extern std::string get_iso_timestamp(time_t);
 extern std::string get_current_iso_timestamp(void);
 extern std::string replace_substring(std::string const &str, std::string const &substring, std::string const &value);
 

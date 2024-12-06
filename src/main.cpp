@@ -269,7 +269,7 @@ int main(int argc, char* argv[])
         ++file_index;
         zoom_level = zoom_level * zoom_factor + zoom_increment;
 
-        std::time_t now = std::time(nullptr);
+        time_t now = std::time(nullptr);
         auto dt = now - t0;
         config["zoom"]["from"] = zoom_level;
         config["checkpoint"]["file_index"] = file_index;
