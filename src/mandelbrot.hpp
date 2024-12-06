@@ -86,7 +86,7 @@ template <typename FloatType> class MandelbrotNeighborhood
 {
   public:
     using ComplexType = std::complex<FloatType>;
-    // Compute reference orbit for base point
+
     struct ReferenceOrbit
     {
         std::vector<FloatType> x_trajectory;
@@ -106,7 +106,6 @@ template <typename FloatType> class MandelbrotNeighborhood
 
             while (x2 + y2 <= 4 && iterations < max_iterations)
             {
-                // Store trajectory points
                 x_trajectory.push_back(x);
                 y_trajectory.push_back(y);
 
@@ -157,7 +156,6 @@ template <typename FloatType> class MandelbrotNeighborhood
                                                                                 iteration_count_t max_iterations,
                                                                                 int resolution = 10)
     {
-        // Compute reference orbit
         ReferenceOrbit reference;
         reference.compute(center, max_iterations);
 
