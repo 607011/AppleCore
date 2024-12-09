@@ -11,8 +11,6 @@
 #include <utility>
 #include <vector>
 
-#include <boost/multiprecision/mpfr.hpp>
-
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Graphics/Image.hpp>
 
