@@ -1,4 +1,6 @@
 #include "util.hpp"
+#include <chrono>
+#include <locale>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -45,16 +47,18 @@ sf::Color get_rainbow_color(double value)
     return sf::Color(static_cast<sf::Uint8>(r), static_cast<sf::Uint8>(g), static_cast<sf::Uint8>(b));
 }
 
-std::string get_iso_timestamp(std::time_t t)
+std::string get_iso_timestamp(std::chrono::system_clock::time_point const& t)
 {
+    auto time_t_now = std::chrono::system_clock::to_time_t(
+        std::chrono::time_point_cast<std::chrono::system_clock::duration>(t)
+    );
     std::ostringstream oss;
-    oss << std::put_time(std::localtime(&t), "%Y-%m-%dT%H:%M:%SZ");
+    oss << std::put_time(std::localtime(&time_t_now), "%Y-%m-%dT%H:%M:%SZ");
     return oss.str();
 }
 
-std::string get_current_iso_timestamp(void)
-{
-    return get_iso_timestamp(std::time(nullptr));
+std::string get_current_iso_timestamp(void) {
+    return get_iso_timestamp(std::chrono::system_clock::now());
 }
 
 std::string replace_substring(std::string const& str, const std::string& substring, std::string const& value)
