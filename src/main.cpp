@@ -1,12 +1,16 @@
-#include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <locale>
+#include <mutex>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <thread>
@@ -130,14 +134,14 @@ void parse_config_file(std::string const& config_file, mandelbrot_computer_t& ma
     }
 }
 
-sf::Image stitch_images(std::vector<sf::Image> const& partial_images, int h)
+sf::Image stitch_images(std::vector<sf::Image> const& partial_images, int h, int max_h)
 {
     const int w = static_cast<int>(partial_images.front().getSize().x);
     const int n = static_cast<int>(partial_images.size());
     int single_image_height = h / n;
     sf::Image result_image;
     result_image.create(w, h);
-    for (int i = 0; i < n; ++i)
+    for (int i = 0; i < std::min(max_h, n); ++i)
     {
         result_image.copy(partial_images.at(i), 0, i * single_image_height, sf::IntRect(0, 0, w, single_image_height));
     }
@@ -151,7 +155,6 @@ int main(int argc, char* argv[])
     {
         parse_config_file(argv[1], mandelbrot);
     }
-    static constexpr float view_scale = 0.25;
     mpfr_set_default_prec(min_precision_bits);
     if (mandelbrot.height % num_threads != 0)
     {
@@ -165,21 +168,42 @@ int main(int argc, char* argv[])
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
 
-    // Create full image and partial images
-    sf::Image full_image;
-    full_image.create(mandelbrot.width, mandelbrot.height, sf::Color::Transparent);
-    std::vector<sf::Image> partial_images(num_threads);
+    // Queue that holds the work items
+    std::queue<work_item<FloatType>> work_queue;
+
+    // Mutex to protect the queue
+    std::mutex mtx;
+    // Condition variable to signal when the queue is not empty
+    std::condition_variable cv;
+
+    // Launch worker threads
+    std::vector<std::thread> threads;
     for (int i = 0; i < num_threads; ++i)
     {
-        int start_row = i * mandelbrot.height / num_threads;
-        int end_row = (i + 1) * mandelbrot.height / num_threads;
-        partial_images[i].create(mandelbrot.width, end_row - start_row, sf::Color::Transparent);
+        threads.emplace_back([&work_queue, &mtx, &cv, &mandelbrot]() {
+            while (true)
+            {
+                std::unique_lock<std::mutex> lock(mtx);
+                cv.wait(lock, [&work_queue] { return !work_queue.empty(); });
+                work_item item = work_queue.front();
+                work_queue.pop();
+                lock.unlock();
+                if (item.quit)
+                    break;
+                mandelbrot.calculate_mandelbrot_row(item);
+            }
+        });
+    }
+
+    // Create partial images, one per row
+    std::vector<sf::Image> partial_images(mandelbrot.height);
+    for (int row = 0; row < mandelbrot.height; ++row)
+    {
+        partial_images[row].create(mandelbrot.width, 1, sf::Color::Transparent);
     }
 
     // Zoom in
 #ifndef HEADLESS
-    std::vector<sf::Texture> textures(partial_images.size());
-    std::vector<sf::Sprite> sprites(partial_images.size());
     sf::RenderWindow window(sf::VideoMode(mandelbrot.width / 4, mandelbrot.height / 4), "AppleCore");
     sf::Event event;
     window.clear(sf::Color::Green);
@@ -196,29 +220,27 @@ int main(int argc, char* argv[])
         const double scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(mandelbrot.width, mandelbrot.height);
         FloatType real_start = c_real - mandelbrot.width / 2.0 * scale_factor;
         FloatType imag_start = c_imag - mandelbrot.height / 2.0 * scale_factor;
-        mandelbrot.completed_rows = 0;
+        mandelbrot.reset();
         const iteration_count_t max_iterations =
             std::min(mandelbrot.max_iterations_limit, mandelbrot.calculate_max_iterations(zoom_level));
         std::cout << "\rZoom: " << std::setprecision(6) << std::defaultfloat << zoom_level
                   << "; Δpixel: " << std::scientific << std::setprecision(24) << scale_factor
-                  << "; max. iterations: " << max_iterations << "\x1b[K" << std::flush;
-
+                  << "; max. iterations: " << max_iterations
+                  << "; current file index: " << file_index
+                  << "\x1b[K" << std::endl;
         auto frame_t0 = chrono::system_clock::now();
 
-        // launch Mandelbrot calculator threads
-        std::vector<std::thread> threads;
-        for (int i = 0; i < num_threads; ++i)
+        // Add work items to queue
+        for (int row = 0; row < mandelbrot.height; ++row)
         {
-            const int start_row = i * mandelbrot.height / num_threads;
-            const int end_row = (i + 1) * mandelbrot.height / num_threads;
-            threads.emplace_back(&mandelbrot_computer_t::calculate_mandelbrot_row_range, &mandelbrot,
-                                 mandelbrot_computer_t::thread_param{.image = partial_images[i],
-                                                                     .scale_factor = scale_factor,
-                                                                     .real_start = real_start,
-                                                                     .imag_start = imag_start,
-                                                                     .start_row = start_row,
-                                                                     .end_row = end_row,
-                                                                     .max_iterations = max_iterations});
+            std::lock_guard<std::mutex> lock(mtx);
+            work_queue.emplace(work_item<FloatType>{.image = std::ref(partial_images[row]),
+                                                    .scale_factor = scale_factor,
+                                                    .real_start = real_start,
+                                                    .imag_start = imag_start,
+                                                    .row = row,
+                                                    .max_iterations = max_iterations});
+            cv.notify_one();
         }
 
 #ifndef HEADLESS
@@ -232,9 +254,9 @@ int main(int argc, char* argv[])
                 sf::sleep(sf::milliseconds(100));
             }
             last_mouse_pos = sf::Mouse::getPosition(window);
-            std::cout << "\r" << mandelbrot.completed_rows << " of " << mandelbrot.height << " rows completed (" << std::fixed
-                      << std::setprecision(1) << (100.0 * mandelbrot.completed_rows / mandelbrot.height) << "%)\x1b[K"
-                      << std::flush;
+            std::cout << "\r" << mandelbrot.completed_rows << " of " << mandelbrot.height << " rows completed ("
+                      << std::fixed << std::setprecision(1) << (100.0 * mandelbrot.completed_rows / mandelbrot.height)
+                      << "%)\x1b[K" << std::flush;
             while (window.pollEvent(event))
             {
                 switch (event.type)
@@ -262,24 +284,23 @@ int main(int argc, char* argv[])
                 }
             }
             window.clear();
-            for (size_t i = 0; i < partial_images.size(); ++i)
-            {
-                textures[i].loadFromImage(partial_images.at(i));
-                sprites[i].setTexture(textures.at(i));
-                const int start_row = i * mandelbrot.height / num_threads;
-                sprites[i].setPosition(0, start_row / 4);
-                sprites[i].setScale(0.25, 0.25);
-                window.draw(sprites.at(i));
-            }
+            sf::Image const& intermediate_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.completed_rows);
+            sf::Texture tex;
+            tex.loadFromImage(intermediate_image);
+            sf::Sprite sprite(tex);
+            sprite.setScale(0.25, 0.25);
+            window.draw(sprite);
             window.display();
         }
-#endif
-        for (std::thread& thread : threads)
+#else
+        while (mandelbrot.completed_rows < mandelbrot.height)
         {
-            thread.join();
+            using namespace std::chrono_literals;
+            std::this_thread::sleep_for(100ms);
         }
+#endif
         std::cout << "\rStitching final image ... \x1b[K" << std::flush;
-        full_image = stitch_images(partial_images, mandelbrot.height);
+        sf::Image const& completed_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.height);
         std::string fidx = std::to_string(file_index);
         fidx = std::string(6U - fidx.length(), '0') + fidx;
         std::string png_file = replace_substring(out_file, "{file_index}", fidx);
@@ -288,10 +309,10 @@ int main(int argc, char* argv[])
         png_file = replace_substring(png_file, "{zoom_level}", std::to_string(zoom_level));
         png_file = replace_substring(png_file, "{size}",
                                      std::to_string(mandelbrot.width) + 'x' + std::to_string(mandelbrot.height));
-        std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::flush;
-        full_image.saveToFile(png_file);
+        std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
+        completed_image.saveToFile(png_file);
         auto now = chrono::system_clock::now();
-        std::cout << "\rElapsed time: " << format_duration(now - frame_t0) << "\x1b[K" << std::flush;
+        std::cout << "Elapsed time: " << format_duration(now - frame_t0) << std::endl;
 
         ++file_index;
         zoom_level = zoom_level * zoom_factor + zoom_increment;
@@ -303,8 +324,24 @@ int main(int argc, char* argv[])
         config["checkpoint"]["now"] = get_current_iso_timestamp();
         config["checkpoint"]["elapsed_total"] = format_duration(now - t0);
         config["checkpoint"]["elapsed_last_frame"] = format_duration(now - frame_t0);
-        std::ofstream checkpoint(checkpoint_file, std::ios::trunc);
+
+        std::string const& checkpoint_out_filename = replace_substring(checkpoint_file, "{file_index}", fidx);
+        std::ofstream checkpoint(checkpoint_out_filename, std::ios::trunc);
         checkpoint << config;
+    }
+
+    // Signal all threads to terminate
+    for (int i = 0; i < num_threads; ++i)
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        work_queue.emplace(work_item<FloatType>{.image = partial_images[i], .quit = true});
+        cv.notify_one();
+    }
+
+    // Wait for threads to complete
+    for (std::thread& thread : threads)
+    {
+        thread.join();
     }
 
     return EXIT_SUCCESS;
