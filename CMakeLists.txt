@@ -29,6 +29,10 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
   set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -Wno-deprecated -DDEBUG -glldb")
 endif()
 
+if (APPLE)
+  enable_language(OBJCXX)
+endif()
+
 find_path(MPFR_INCLUDE_DIRS NAMES mpfr.h)
 find_library(MPFR_LIBRARY NAMES mpfr libmpfr)
 
@@ -62,6 +66,12 @@ set(MANDELBROT_SOURCES
   src/main.cpp
   src/util.cpp
 )
+
+if (APPLE)
+set(MANDELBROT_SOURCES ${MANDELBROT_SOURCES}
+  src/mandelbrot_metal.mm
+)
+endif()
 
 add_executable(mandelbrot ${MANDELBROT_SOURCES})
 

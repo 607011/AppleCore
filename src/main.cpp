@@ -24,15 +24,22 @@
 #include <yaml-cpp/yaml.h>
 
 #include "1000s.hpp"
-#include "mandelbrot.hpp"
 #include "util.hpp"
+
+// using FloatType = mp::mpfr_float;
+using FloatType = double;
+
+#ifdef __APPLE__
+#include "mandelbrot_metal.h"
+using mandelbrot_computer_t = mandelbrot_calculator_metal<FloatType>;
+#else
+#include "mandelbrot.hpp"
+using mandelbrot_computer_t = mandelbrot_calculator<FloatType>;
+// using mandelbrot_computer_t = mandelbrot_calculator_perturbative<FloatType>;
+#endif
 
 namespace mp = boost::multiprecision;
 namespace chrono = std::chrono;
-// using FloatType = mp::mpfr_float;
-using FloatType = double;
-using mandelbrot_computer_t = mandelbrot_calculator<FloatType>;
-// using mandelbrot_computer_t = mandelbrot_calculator_perturbative<FloatType>;
 using palette_t = std::vector<sf::Color>;
 
 int num_threads = static_cast<int>(std::thread::hardware_concurrency());
