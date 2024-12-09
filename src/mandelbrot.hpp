@@ -3,8 +3,6 @@
 
 #include <atomic>
 #include <cmath>
-#include <complex>
-#include <future>
 #include <iostream>
 #include <mutex>
 #include <sys/types.h>
