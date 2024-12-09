@@ -42,7 +42,6 @@ template <typename FloatType> struct mandelbrot_calculator
     std::atomic<int> completed_rows = 0;
     int width = 3840;
     int height = 2160;
-    std::mutex output_mtx;
 
     void reset(void)
     {
