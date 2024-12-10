@@ -13,7 +13,7 @@ extern std::string replace_substring(std::string const& str, std::string const& 
 
 template <typename Duration> std::string format_duration(Duration dt)
 {
-    auto days = std::chrono::duration_cast<std::chrono::days>(dt);
+    auto days = std::chrono::duration_cast<std::chrono::hours>(dt) / 24;
     dt -= days;
     auto hours = std::chrono::duration_cast<std::chrono::hours>(dt);
     dt -= hours;
