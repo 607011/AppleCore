@@ -12,25 +12,12 @@
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Graphics/Image.hpp>
 
+#include "defs.hpp"
 #include "util.hpp"
 
 namespace
 {
-
-using iteration_count_t = uint64_t;
 namespace mp = boost::multiprecision;
-
-template <typename FloatType> struct work_item
-{
-    sf::Image& image;
-    const double scale_factor{};
-    FloatType const& real_start{};
-    FloatType const& imag_start{};
-    const int row{};
-    const int radius{1}; // needed by perturbative calculator
-    const iteration_count_t max_iterations{};
-    bool quit{false};
-};
 
 template <typename FloatType> struct mandelbrot_calculator
 {
@@ -70,9 +57,7 @@ template <typename FloatType> struct mandelbrot_calculator
         {
             FloatType const& pixel_real = w.real_start + w.scale_factor * x;
             FloatType const& pixel_imag = w.imag_start + w.scale_factor * w.row;
-            const iteration_count_t iterations = calculate(pixel_real, pixel_imag, w.max_iterations);
-            const double hue = static_cast<double>(iterations) / static_cast<double>(w.max_iterations);
-            w.image.setPixel(x, 0, (iterations < w.max_iterations) ? get_rainbow_color(hue) : sf::Color::Black);
+            w.result[x] = calculate(pixel_real, pixel_imag, w.max_iterations);
         }
         ++completed_rows;
     }

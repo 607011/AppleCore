@@ -8,9 +8,17 @@ project(mandelbrot
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(POLICY CMP0167)
+  cmake_policy(SET CMP0167 NEW)
+endif()
+
+set(Boost_USE_STATIC_LIBS OFF) 
+set(Boost_USE_MULTITHREADED ON)  
+set(Boost_USE_STATIC_RUNTIME OFF) 
 set(BOOST_ROOT $ENV{BOOST_ROOT})
-find_package(Boost 1.81.0 NO_MODULE REQUIRED)
+find_package(Boost 1.81.0 REQUIRED COMPONENTS serialization iostreams)
 message(STATUS "Boost include dirs: ${Boost_INCLUDE_DIRS}")
+message(STATUS "Boost lib dirs: ${Boost_LIBRARIES}")
 
 if(UNIX)
   set(CMAKE_CXX_FLAGS_PROFILING
@@ -31,6 +39,10 @@ endif()
 
 find_path(MPFR_INCLUDE_DIRS NAMES mpfr.h)
 find_library(MPFR_LIBRARY NAMES mpfr libmpfr)
+
+find_package(ZLIB REQUIRED)
+message(STATUS "Zlib include dirs: ${ZLIB_INCLUDE_DIR}")
+message(STATUS "Zlib lib dirs: ${ZLIB_LIBRARIES}")
 
 include(FetchContent)
 
@@ -73,11 +85,14 @@ target_include_directories(mandelbrot
   PUBLIC ${SFML_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${MPRF_INCLUDE_DIRS}
+  ${ZLIB_INCLUDE_DIR}
 )
 
 target_link_libraries(mandelbrot 
-  PUBLIC 
+  PUBLIC
+  ${Boost_LIBRARIES}
   ${MPFR_LIBRARY}
+  ${ZLIB_LIBRARIES}
   yaml-cpp::yaml-cpp
   sfml-graphics
 )

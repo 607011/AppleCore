@@ -1,11 +1,12 @@
 #include <algorithm>
+#include <arpa/inet.h>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <functional>
-#include <future>
 #include <iomanip>
 #include <iostream>
 #include <locale>
@@ -24,6 +25,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "1000s.hpp"
+#include "defs.hpp"
 #include "mandelbrot.hpp"
 #include "util.hpp"
 
@@ -49,6 +51,8 @@ palette_t palette;
 std::string out_file = "mandelbrot.png";
 std::string checkpoint_file = "checkpoint.yaml";
 YAML::Node config;
+
+constexpr std::string APP_NAME{"AppleCore"};
 
 void parse_config_file(std::string const& config_file, mandelbrot_computer_t& mandelbrot)
 {
@@ -134,16 +138,27 @@ void parse_config_file(std::string const& config_file, mandelbrot_computer_t& ma
     }
 }
 
-sf::Image stitch_images(std::vector<sf::Image> const& partial_images, int h, int max_h)
+sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int height, int max_height,
+                   iteration_count_t max_iterations, std::function<sf::Color(double)> colorizer)
 {
-    const int w = static_cast<int>(partial_images.front().getSize().x);
-    const int n = static_cast<int>(partial_images.size());
-    int single_image_height = h / n;
     sf::Image result_image;
-    result_image.create(w, h);
-    for (int i = 0; i < std::min(max_h, n); ++i)
+    result_image.create(width, std::min(height, max_height));
+    iteration_count_t iterations_max = *std::max_element(std::begin(buf), std::end(buf));
+    auto iterations_it = std::begin(buf);
+    for (int y = 0; y < std::min(height, max_height); ++y)
     {
-        result_image.copy(partial_images.at(i), 0, i * single_image_height, sf::IntRect(0, 0, w, single_image_height));
+        for (int x = 0; x < width; ++x)
+        {
+            if (*iterations_it < max_iterations)
+            {
+                result_image.setPixel(x, y, colorizer(static_cast<double>(*iterations_it) / iterations_max));
+            }
+            else
+            {
+                result_image.setPixel(x, y, sf::Color::Black);
+            }
+            ++iterations_it;
+        }
     }
     return result_image;
 }
@@ -190,21 +205,18 @@ int main(int argc, char* argv[])
                 lock.unlock();
                 if (item.quit)
                     break;
-                mandelbrot.calculate_mandelbrot_row(item);
+                mandelbrot.calculate_mandelbrot_row_range(item);
             }
         });
     }
 
-    // Create partial images, one per row
-    std::vector<sf::Image> partial_images(mandelbrot.height);
-    for (int row = 0; row < mandelbrot.height; ++row)
-    {
-        partial_images[row].create(mandelbrot.width, 1, sf::Color::Transparent);
-    }
+    // Create buffer for partial results
+    std::vector<iteration_count_t> result_buffer(mandelbrot.width * mandelbrot.height);
+    std::fill(std::begin(result_buffer), std::end(result_buffer), 0);
 
     // Zoom in
 #ifndef HEADLESS
-    sf::RenderWindow window(sf::VideoMode(mandelbrot.width / 4, mandelbrot.height / 4), "AppleCore");
+    sf::RenderWindow window(sf::VideoMode(mandelbrot.width / 4, mandelbrot.height / 4), APP_NAME);
     sf::Event event;
     window.clear(sf::Color::Green);
     window.display();
@@ -225,16 +237,15 @@ int main(int argc, char* argv[])
             std::min(mandelbrot.max_iterations_limit, mandelbrot.calculate_max_iterations(zoom_level));
         std::cout << "\rZoom: " << std::setprecision(6) << std::defaultfloat << zoom_level
                   << "; Δpixel: " << std::scientific << std::setprecision(24) << scale_factor
-                  << "; max. iterations: " << max_iterations
-                  << "; current file index: " << file_index
-                  << "\x1b[K" << std::endl;
+                  << "; max. iterations: " << max_iterations << "; current file index: " << file_index << "\x1b[K"
+                  << std::endl;
         auto frame_t0 = chrono::system_clock::now();
 
         // Add work items to queue
         for (int row = 0; row < mandelbrot.height; ++row)
         {
             std::lock_guard<std::mutex> lock(mtx);
-            work_queue.emplace(work_item<FloatType>{.image = std::ref(partial_images[row]),
+            work_queue.emplace(work_item<FloatType>{.result = result_buffer.data() + row * mandelbrot.width,
                                                     .scale_factor = scale_factor,
                                                     .real_start = real_start,
                                                     .imag_start = imag_start,
@@ -244,6 +255,7 @@ int main(int argc, char* argv[])
         }
 
 #ifndef HEADLESS
+        window.setTitle(APP_NAME + " [" + std::to_string(file_index) + "]");
         sf::Vector2i last_mouse_pos = sf::Mouse::getPosition(window);
         while (mandelbrot.completed_rows < mandelbrot.height && window.isOpen())
         {
@@ -251,7 +263,7 @@ int main(int argc, char* argv[])
             while (mandelbrot.completed_rows <= last_completed_rows && window.isOpen() &&
                    last_mouse_pos == sf::Mouse::getPosition(window))
             {
-                sf::sleep(sf::milliseconds(100));
+                sf::sleep(sf::milliseconds(16));
             }
             last_mouse_pos = sf::Mouse::getPosition(window);
             std::cout << "\r" << mandelbrot.completed_rows << " of " << mandelbrot.height << " rows completed ("
@@ -284,7 +296,9 @@ int main(int argc, char* argv[])
                 }
             }
             window.clear();
-            sf::Image const& intermediate_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.completed_rows);
+            sf::Image const& intermediate_image =
+                colorize(result_buffer, mandelbrot.width, mandelbrot.height, mandelbrot.completed_rows, max_iterations,
+                         get_rainbow_color);
             sf::Texture tex;
             tex.loadFromImage(intermediate_image);
             sf::Sprite sprite(tex);
@@ -299,20 +313,25 @@ int main(int argc, char* argv[])
             std::this_thread::sleep_for(100ms);
         }
 #endif
-        std::cout << "\rStitching final image ... \x1b[K" << std::flush;
-        sf::Image const& completed_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.height);
         std::string fidx = std::to_string(file_index);
         fidx = std::string(6U - fidx.length(), '0') + fidx;
+        // std::cout << "\rStitching final image ... \x1b[K" << std::flush;
+        // sf::Image const& completed_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.height);
         std::string png_file = replace_substring(out_file, "{file_index}", fidx);
         png_file = replace_substring(png_file, "{max_iterations}", std::to_string(max_iterations));
         png_file = replace_substring(png_file, "{log_scale_factor}", std::to_string(log_scale_factor));
         png_file = replace_substring(png_file, "{zoom_level}", std::to_string(zoom_level));
         png_file = replace_substring(png_file, "{size}",
                                      std::to_string(mandelbrot.width) + 'x' + std::to_string(mandelbrot.height));
-        std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
-        completed_image.saveToFile(png_file);
+        // std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
+        // completed_image.saveToFile(png_file);
+
+        std::string result_file = replace_substring("{file_index}.mandelbrot.z", "{file_index}", fidx);
+        save_result(result_buffer, mandelbrot.width, mandelbrot.height, result_file);
+
         auto now = chrono::system_clock::now();
-        std::cout << "Elapsed time: " << format_duration(now - frame_t0) << std::endl;
+
+        std::cout << "\rElapsed time: " << format_duration(now - frame_t0) << "\x1b[K" << std::endl;
 
         ++file_index;
         zoom_level = zoom_level * zoom_factor + zoom_increment;
@@ -334,7 +353,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < num_threads; ++i)
     {
         std::lock_guard<std::mutex> lock(mtx);
-        work_queue.emplace(work_item<FloatType>{.image = partial_images[i], .quit = true});
+        work_queue.emplace(work_item<FloatType>{.quit = true});
         cv.notify_one();
     }
 

@@ -5,11 +5,17 @@
 #include <chrono>
 #include <sstream>
 #include <string>
+#include <vector>
+
+#include "defs.hpp"
 
 extern sf::Color get_rainbow_color(double);
 extern std::string get_iso_timestamp(std::chrono::system_clock::time_point const& t);
 extern std::string get_current_iso_timestamp(void);
 extern std::string replace_substring(std::string const& str, std::string const& substring, std::string const& value);
+
+void save_result(std::vector<iteration_count_t> const&, int width, int height, std::string const& filename);
+std::vector<iteration_count_t> load_result(std::string const& filename, int& width, int& height);
 
 template <typename Duration> std::string format_duration(Duration dt)
 {
