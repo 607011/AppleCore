@@ -32,8 +32,8 @@
 namespace mp = boost::multiprecision;
 namespace chrono = std::chrono;
 // using FloatType = mp::mpfr_float;
-using FloatType = double;
-using mandelbrot_computer_t = mandelbrot_calculator<FloatType>;
+// using FloatType = double;
+// using mandelbrot_computer_t = mandelbrot_calculator<FloatType>;
 // using mandelbrot_computer_t = mandelbrot_calculator_perturbative<FloatType>;
 using palette_t = std::vector<sf::Color>;
 
@@ -43,8 +43,10 @@ double zoom_to = 1000;
 double zoom_factor = 1.0;
 double zoom_increment = 0.12;
 int file_index = 0;
-FloatType c_real = -0.75;
-FloatType c_imag = 0.0;
+double c_real = -0.75;
+double c_imag = 0.0;
+mp::mpfr_float c_real_mp{-0.75};
+mp::mpfr_float c_imag_mp{0.0};
 mpfr_prec_t min_precision_bits = 64;
 double log_scale_factor = 0.1;
 palette_t palette;
@@ -52,48 +54,30 @@ std::string out_file = "mandelbrot.png";
 std::string checkpoint_file = "checkpoint.yaml";
 YAML::Node config;
 
-constexpr std::string APP_NAME{"AppleCore"};
+static constexpr double ZOOM_THRESHOLD_FOR_DOUBLE_PREC = 44.5;
+static constexpr std::string APP_NAME{"AppleCore"};
 
-void parse_config_file(std::string const& config_file, mandelbrot_computer_t& mandelbrot)
+void setup(void)
 {
-    config = YAML::LoadFile(config_file);
-    if (config["width"] && config["height"])
-    {
-        mandelbrot.width = config["width"].as<int>();
-        mandelbrot.height = config["height"].as<int>();
-    }
-    if (config["max_iterations_limit"])
-    {
-        mandelbrot.max_iterations_limit = config["max_iterations_limit"].as<iteration_count_t>();
-    }
-    if (config["base_iterations"])
-    {
-        mandelbrot.base_iterations = config["base_iterations"].as<iteration_count_t>();
-    }
-    if (config["log_scale_factor"])
-    {
-        mandelbrot.log_scale_factor = config["log_scale_factor"].as<double>();
-    }
     if (config["checkpoint"]["file_index"])
     {
         file_index = config["checkpoint"]["file_index"].as<int>();
     }
-    if (config["zoom"]["from"] && config["zoom"]["to"] && config["zoom"]["factor"])
+    if (config["zoom"]["from"])
     {
         zoom_from = config["zoom"]["from"].as<double>();
-        zoom_to = config["zoom"]["to"].as<double>();
-        zoom_factor = config["zoom"]["factor"].as<double>();
-        zoom_increment = config["zoom"]["increment"].as<double>();
     }
-    if (config["center"]["r"] && config["center"]["i"])
+    if (config["zoom"]["to"])
     {
-        c_real = config["center"]["r"].as<FloatType>();
-        c_imag = config["center"]["i"].as<FloatType>();
-        // else
-        // {
-        //     c_real.assign(config["center"]["r"].as<std::string>());
-        //     c_imag.assign(config["center"]["i"].as<std::string>());
-        // }
+        zoom_to = config["zoom"]["to"].as<double>();
+    }
+    if (config["zoom"]["factor"])
+    {
+        zoom_factor = config["zoom"]["factor"].as<double>();
+    }
+    if (config["zoom"]["increment"])
+    {
+        zoom_increment = config["zoom"]["increment"].as<double>();
     }
     if (config["min_precision_bits"])
     {
@@ -136,22 +120,73 @@ void parse_config_file(std::string const& config_file, mandelbrot_computer_t& ma
     {
         checkpoint_file = config["checkpoint_file"].as<std::string>();
     }
+    if (config["center"]["r"] && config["center"]["i"])
+    {
+        c_real = config["center"]["r"].as<double>();
+        c_imag = config["center"]["i"].as<double>();
+        c_real_mp.assign(config["center"]["r"].as<std::string>());
+        c_imag_mp.assign(config["center"]["i"].as<std::string>());
+    }
+}
+
+void setup(mandelbrot_computer_base& mandelbrot)
+{
+    if (config["width"] && config["height"])
+    {
+        mandelbrot.width = config["width"].as<int>();
+        mandelbrot.height = config["height"].as<int>();
+    }
+    if (config["iterations"]["base"])
+    {
+        mandelbrot.base_iterations = config["iterations"]["base"].as<iteration_count_t>();
+    }
+    if (config["iterations"]["forced"])
+    {
+        mandelbrot.forced_max_iterations = config["iterations"]["forced"].as<iteration_count_t>();
+    }
+    if (config["iterations"]["limit"])
+    {
+        mandelbrot.max_iterations_limit = config["iterations"]["limit"].as<iteration_count_t>();
+    }
+    if (config["iterations"]["factor"])
+    {
+        mandelbrot.max_iter_factor = config["iterations"]["factor"].as<double>();
+    }
+    if (config["iterations"]["exponent"])
+    {
+        mandelbrot.max_iter_exponent = config["iterations"]["exponent"].as<double>();
+    }
+}
+
+std::string process_filename_template(std::string const& filename, mandelbrot_computer_base const& mandelbrot,
+                                      int file_index, iteration_count_t max_iterations, double zoom_level)
+{
+    std::string fidx = std::to_string(file_index);
+    fidx = std::string(6U - fidx.length(), '0') + fidx;
+    std::string result = replace_substring(filename, "{file_index}", fidx);
+    result = replace_substring(result, "{max_iterations}", std::to_string(max_iterations));
+    result = replace_substring(result, "{log_scale_factor}", std::to_string(log_scale_factor));
+    result = replace_substring(result, "{zoom_level}", std::to_string(zoom_level));
+    result =
+        replace_substring(result, "{size}", std::to_string(mandelbrot.width) + 'x' + std::to_string(mandelbrot.height));
+    return result;
 }
 
 sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int height, int max_height,
                    iteration_count_t max_iterations, std::function<sf::Color(double)> colorizer)
 {
+    const int ymax = std::min(height, max_height);
     sf::Image result_image;
-    result_image.create(width, std::min(height, max_height));
-    iteration_count_t iterations_max = *std::max_element(std::begin(buf), std::end(buf));
+    result_image.create(width, ymax);
+    // iteration_count_t iterations_max = *std::max_element(std::begin(buf), std::end(buf));
     auto iterations_it = std::begin(buf);
-    for (int y = 0; y < std::min(height, max_height); ++y)
+    for (int y = 0; y < ymax; ++y)
     {
         for (int x = 0; x < width; ++x)
         {
             if (*iterations_it < max_iterations)
             {
-                result_image.setPixel(x, y, colorizer(static_cast<double>(*iterations_it) / iterations_max));
+                result_image.setPixel(x, y, colorizer(static_cast<double>(*iterations_it) / max_iterations));
             }
             else
             {
@@ -165,37 +200,42 @@ sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int hei
 
 int main(int argc, char* argv[])
 {
-    mandelbrot_computer_t mandelbrot;
+    mandelbrot_calculator<double> mandelbrot_dp;
+    mandelbrot_calculator<mp::mpfr_float> mandelbrot_mp;
+    mandelbrot_computer_base* mandelbrot = &mandelbrot_mp;
     if (argc > 1)
     {
-        parse_config_file(argv[1], mandelbrot);
+        config = YAML::LoadFile(argv[1]);
+        setup();
+        setup(mandelbrot_dp);
+        setup(mandelbrot_mp);
     }
     mpfr_set_default_prec(min_precision_bits);
-    if (mandelbrot.height % num_threads != 0)
-    {
-        std::cerr << "Configuration error: image height (" << mandelbrot.height
-                  << ") must be divisible by number of threads (" << num_threads << ")." << std::endl;
-        return EXIT_FAILURE;
-    }
+    double zoom_level = zoom_from;
+
     auto t0 = chrono::system_clock::now();
-    std::cout << "Generating " << mandelbrot.width << 'x' << mandelbrot.height << " image in " << num_threads
+    std::cout << "Generating " << mandelbrot->width << 'x' << mandelbrot->height << " image in " << num_threads
               << " threads. ";
     std::cout.imbue(std::locale(std::locale::classic(), new thsds_numpunct));
     std::cout << "Zooming from " << zoom_from << " to " << zoom_to << '.' << std::endl;
 
     // Queue that holds the work items
-    std::queue<work_item<FloatType>> work_queue;
+    std::queue<work_item> work_queue;
 
     // Mutex to protect the queue
     std::mutex mtx;
     // Condition variable to signal when the queue is not empty
     std::condition_variable cv;
 
+    // Create buffer for partial results
+    std::vector<iteration_count_t> result_buffer(mandelbrot->width * mandelbrot->height);
+    std::fill(std::begin(result_buffer), std::end(result_buffer), 0);
+
     // Launch worker threads
     std::vector<std::thread> threads;
     for (int i = 0; i < num_threads; ++i)
     {
-        threads.emplace_back([&work_queue, &mtx, &cv, &mandelbrot]() {
+        threads.emplace_back([&work_queue, &mtx, &cv, &mandelbrot, &zoom_level]() {
             while (true)
             {
                 std::unique_lock<std::mutex> lock(mtx);
@@ -205,36 +245,37 @@ int main(int argc, char* argv[])
                 lock.unlock();
                 if (item.quit)
                     break;
-                mandelbrot.calculate_mandelbrot_row_range(item);
+                mandelbrot->calculate_mandelbrot_row(item);
             }
         });
     }
 
-    // Create buffer for partial results
-    std::vector<iteration_count_t> result_buffer(mandelbrot.width * mandelbrot.height);
-    std::fill(std::begin(result_buffer), std::end(result_buffer), 0);
-
-    // Zoom in
+    // Loop for zooming in
 #ifndef HEADLESS
-    sf::RenderWindow window(sf::VideoMode(mandelbrot.width / 4, mandelbrot.height / 4), APP_NAME);
+    sf::RenderWindow window(sf::VideoMode(mandelbrot->width, mandelbrot->height), APP_NAME);
     sf::Event event;
     window.clear(sf::Color::Green);
     window.display();
     (void)window.pollEvent(event);
     bool quit_on_next_frame = false;
-    double zoom_level = zoom_from;
     while (zoom_level <= zoom_to && window.isOpen() && !quit_on_next_frame)
 #else
     double zoom_level = zoom_from;
     while (zoom_level <= zoom_to)
 #endif
     {
-        const double scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(mandelbrot.width, mandelbrot.height);
-        FloatType real_start = c_real - mandelbrot.width / 2.0 * scale_factor;
-        FloatType imag_start = c_imag - mandelbrot.height / 2.0 * scale_factor;
-        mandelbrot.reset();
-        const iteration_count_t max_iterations =
-            std::min(mandelbrot.max_iterations_limit, mandelbrot.calculate_max_iterations(zoom_level));
+        mandelbrot = (zoom_level < ZOOM_THRESHOLD_FOR_DOUBLE_PREC)
+            ? reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_dp)
+            : reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_mp);
+        double scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(mandelbrot->width, mandelbrot->height);
+        double real_start = c_real - mandelbrot->width / 2.0 * scale_factor;
+        double imag_start = c_imag - mandelbrot->height / 2.0 * scale_factor;
+        mp::mpfr_float real_start_mp = c_real_mp - mandelbrot->width / 2.0 * scale_factor;
+        mp::mpfr_float imag_start_mp = c_imag_mp - mandelbrot->height / 2.0 * scale_factor;
+        mandelbrot->reset();
+        const iteration_count_t max_iterations = mandelbrot->forced_max_iterations.value_or(
+            std::min(mandelbrot->max_iterations_limit, mandelbrot->calculate_max_iterations(zoom_level)));
+
         std::cout << "\rZoom: " << std::setprecision(6) << std::defaultfloat << zoom_level
                   << "; Δpixel: " << std::scientific << std::setprecision(24) << scale_factor
                   << "; max. iterations: " << max_iterations << "; current file index: " << file_index << "\x1b[K"
@@ -242,32 +283,34 @@ int main(int argc, char* argv[])
         auto frame_t0 = chrono::system_clock::now();
 
         // Add work items to queue
-        for (int row = 0; row < mandelbrot.height; ++row)
+        for (int row = 0; row < mandelbrot->height; ++row)
         {
             std::lock_guard<std::mutex> lock(mtx);
-            work_queue.emplace(work_item<FloatType>{.result = result_buffer.data() + row * mandelbrot.width,
-                                                    .scale_factor = scale_factor,
-                                                    .real_start = real_start,
-                                                    .imag_start = imag_start,
-                                                    .row = row,
-                                                    .max_iterations = max_iterations});
+            work_queue.emplace(work_item{.result = result_buffer.data() + row * mandelbrot->width,
+                                         .scale_factor = scale_factor,
+                                         .real_start = real_start,
+                                         .imag_start = imag_start,
+                                         .real_start_mp = real_start_mp,
+                                         .imag_start_mp = imag_start_mp,
+                                         .row = row,
+                                         .max_iterations = max_iterations});
             cv.notify_one();
         }
 
 #ifndef HEADLESS
         window.setTitle(APP_NAME + " [" + std::to_string(file_index) + "]");
         sf::Vector2i last_mouse_pos = sf::Mouse::getPosition(window);
-        while (mandelbrot.completed_rows < mandelbrot.height && window.isOpen())
+        while (mandelbrot->completed_rows < mandelbrot->height && window.isOpen())
         {
-            int last_completed_rows = mandelbrot.completed_rows;
-            while (mandelbrot.completed_rows <= last_completed_rows && window.isOpen() &&
+            int last_completed_rows = mandelbrot->completed_rows;
+            while (mandelbrot->completed_rows <= last_completed_rows && window.isOpen() &&
                    last_mouse_pos == sf::Mouse::getPosition(window))
             {
-                sf::sleep(sf::milliseconds(16));
+                sf::sleep(sf::milliseconds(100));
             }
             last_mouse_pos = sf::Mouse::getPosition(window);
-            std::cout << "\r" << mandelbrot.completed_rows << " of " << mandelbrot.height << " rows completed ("
-                      << std::fixed << std::setprecision(1) << (100.0 * mandelbrot.completed_rows / mandelbrot.height)
+            std::cout << "\r" << mandelbrot->completed_rows << " of " << mandelbrot->height << " rows completed ("
+                      << std::fixed << std::setprecision(1) << (100.0 * mandelbrot->completed_rows / mandelbrot->height)
                       << "%)\x1b[K" << std::flush;
             while (window.pollEvent(event))
             {
@@ -281,8 +324,8 @@ int main(int argc, char* argv[])
                     {
                         sf::Vector2i const& mouse_pos = sf::Mouse::getPosition(window);
                         std::ostringstream coords_ss;
-                        FloatType const& pixel_real = real_start + mouse_pos.x * scale_factor;
-                        FloatType const& pixel_imag = imag_start + mouse_pos.y * scale_factor;
+                        mp::mpfr_float const& pixel_real = real_start_mp + mouse_pos.x * scale_factor;
+                        mp::mpfr_float const& pixel_imag = imag_start_mp + mouse_pos.y * scale_factor;
                         coords_ss << "r: " << pixel_real << "\n" << "i: " << pixel_imag;
                         sf::Clipboard::setString(coords_ss.str());
                     }
@@ -297,12 +340,11 @@ int main(int argc, char* argv[])
             }
             window.clear();
             sf::Image const& intermediate_image =
-                colorize(result_buffer, mandelbrot.width, mandelbrot.height, mandelbrot.completed_rows, max_iterations,
-                         get_rainbow_color);
+                colorize(result_buffer, mandelbrot->width, mandelbrot->height, mandelbrot->completed_rows,
+                         max_iterations, get_rainbow_color);
             sf::Texture tex;
             tex.loadFromImage(intermediate_image);
             sf::Sprite sprite(tex);
-            sprite.setScale(0.25, 0.25);
             window.draw(sprite);
             window.display();
         }
@@ -313,21 +355,18 @@ int main(int argc, char* argv[])
             std::this_thread::sleep_for(100ms);
         }
 #endif
-        std::string fidx = std::to_string(file_index);
-        fidx = std::string(6U - fidx.length(), '0') + fidx;
-        // std::cout << "\rStitching final image ... \x1b[K" << std::flush;
-        // sf::Image const& completed_image = stitch_images(partial_images, mandelbrot.height, mandelbrot.height);
-        std::string png_file = replace_substring(out_file, "{file_index}", fidx);
-        png_file = replace_substring(png_file, "{max_iterations}", std::to_string(max_iterations));
-        png_file = replace_substring(png_file, "{log_scale_factor}", std::to_string(log_scale_factor));
-        png_file = replace_substring(png_file, "{zoom_level}", std::to_string(zoom_level));
-        png_file = replace_substring(png_file, "{size}",
-                                     std::to_string(mandelbrot.width) + 'x' + std::to_string(mandelbrot.height));
-        // std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
-        // completed_image.saveToFile(png_file);
+        auto avg_iterations = std::reduce(result_buffer.cbegin(), result_buffer.cend());
+        std::cout << "Average iterations: " << avg_iterations << std::endl;
+        std::cout << "\rProducing final image ... \x1b[K" << std::flush;
+        sf::Image const& completed_image = colorize(result_buffer, mandelbrot->width, mandelbrot->height,
+                                                    mandelbrot->completed_rows - 1, max_iterations, get_rainbow_color);
+        std::string png_file = process_filename_template(out_file, *mandelbrot, file_index, max_iterations, zoom_level);
+        std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
+        completed_image.saveToFile(png_file);
 
-        std::string result_file = replace_substring("{file_index}.mandelbrot.z", "{file_index}", fidx);
-        save_result(result_buffer, mandelbrot.width, mandelbrot.height, result_file);
+        std::string result_file =
+            process_filename_template("{file_index}.mandelbrot.z", *mandelbrot, file_index, max_iterations, zoom_level);
+        save_result(result_buffer, mandelbrot->width, mandelbrot->height, result_file);
 
         auto now = chrono::system_clock::now();
 
@@ -344,7 +383,8 @@ int main(int argc, char* argv[])
         config["checkpoint"]["elapsed_total"] = format_duration(now - t0);
         config["checkpoint"]["elapsed_last_frame"] = format_duration(now - frame_t0);
 
-        std::string const& checkpoint_out_filename = replace_substring(checkpoint_file, "{file_index}", fidx);
+        std::string const& checkpoint_out_filename =
+            process_filename_template(checkpoint_file, *mandelbrot, file_index, max_iterations, zoom_level);
         std::ofstream checkpoint(checkpoint_out_filename, std::ios::trunc);
         checkpoint << config;
     }
@@ -353,7 +393,7 @@ int main(int argc, char* argv[])
     for (int i = 0; i < num_threads; ++i)
     {
         std::lock_guard<std::mutex> lock(mtx);
-        work_queue.emplace(work_item<FloatType>{.quit = true});
+        work_queue.emplace(work_item{.quit = true});
         cv.notify_one();
     }
 
