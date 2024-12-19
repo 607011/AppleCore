@@ -1,5 +1,4 @@
 #include <algorithm>
-#include <arpa/inet.h>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -15,7 +14,6 @@
 #include <sstream>
 #include <stdexcept>
 #include <thread>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -31,10 +29,6 @@
 
 namespace mp = boost::multiprecision;
 namespace chrono = std::chrono;
-// using FloatType = mp::mpfr_float;
-// using FloatType = double;
-// using mandelbrot_computer_t = mandelbrot_calculator<FloatType>;
-// using mandelbrot_computer_t = mandelbrot_calculator_perturbative<FloatType>;
 using palette_t = std::vector<sf::Color>;
 
 int num_threads = static_cast<int>(std::thread::hardware_concurrency());
@@ -50,8 +44,9 @@ mp::mpfr_float c_imag_mp{0.0};
 mpfr_prec_t min_precision_bits = 64;
 double log_scale_factor = 0.1;
 palette_t palette;
-std::string out_file = "mandelbrot.png";
-std::string checkpoint_file = "checkpoint.yaml";
+std::string data_file{};
+std::string image_file{};
+std::string checkpoint_file{};
 YAML::Node config;
 
 static constexpr double ZOOM_THRESHOLD_FOR_DOUBLE_PREC = 44.5;
@@ -112,9 +107,13 @@ void setup(void)
             }
         }
     }
-    if (config["out_file"])
+    if (config["data_file"])
     {
-        out_file = config["out_file"].as<std::string>();
+        data_file = config["data_file"].as<std::string>();
+    }
+    if (config["image_file"])
+    {
+        image_file = config["image_file"].as<std::string>();
     }
     if (config["checkpoint_file"])
     {
@@ -172,32 +171,6 @@ std::string process_filename_template(std::string const& filename, mandelbrot_co
     return result;
 }
 
-sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int height, int max_height,
-                   iteration_count_t max_iterations, std::function<sf::Color(double)> colorizer)
-{
-    const int ymax = std::min(height, max_height);
-    sf::Image result_image;
-    result_image.create(width, ymax);
-    // iteration_count_t iterations_max = *std::max_element(std::begin(buf), std::end(buf));
-    auto iterations_it = std::begin(buf);
-    for (int y = 0; y < ymax; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            if (*iterations_it < max_iterations)
-            {
-                result_image.setPixel(x, y, colorizer(static_cast<double>(*iterations_it) / max_iterations));
-            }
-            else
-            {
-                result_image.setPixel(x, y, sf::Color::Black);
-            }
-            ++iterations_it;
-        }
-    }
-    return result_image;
-}
-
 int main(int argc, char* argv[])
 {
     mandelbrot_calculator<double> mandelbrot_dp;
@@ -224,6 +197,7 @@ int main(int argc, char* argv[])
 
     // Mutex to protect the queue
     std::mutex mtx;
+
     // Condition variable to signal when the queue is not empty
     std::condition_variable cv;
 
@@ -252,7 +226,7 @@ int main(int argc, char* argv[])
 
     // Loop for zooming in
 #ifndef HEADLESS
-    sf::RenderWindow window(sf::VideoMode(mandelbrot->width, mandelbrot->height), APP_NAME);
+    sf::RenderWindow window(sf::VideoMode(mandelbrot->width / 2, mandelbrot->height / 2), APP_NAME);
     sf::Event event;
     window.clear(sf::Color::Green);
     window.display();
@@ -265,8 +239,8 @@ int main(int argc, char* argv[])
 #endif
     {
         mandelbrot = (zoom_level < ZOOM_THRESHOLD_FOR_DOUBLE_PREC)
-            ? reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_dp)
-            : reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_mp);
+                         ? reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_dp)
+                         : reinterpret_cast<mandelbrot_computer_base*>(&mandelbrot_mp);
         double scale_factor = 4.0 / std::pow(2.0, zoom_level) / std::max(mandelbrot->width, mandelbrot->height);
         double real_start = c_real - mandelbrot->width / 2.0 * scale_factor;
         double imag_start = c_imag - mandelbrot->height / 2.0 * scale_factor;
@@ -345,6 +319,7 @@ int main(int argc, char* argv[])
             sf::Texture tex;
             tex.loadFromImage(intermediate_image);
             sf::Sprite sprite(tex);
+            sprite.setScale(sf::Vector2f(0.5f, 0.5f));
             window.draw(sprite);
             window.display();
         }
@@ -355,18 +330,26 @@ int main(int argc, char* argv[])
             std::this_thread::sleep_for(100ms);
         }
 #endif
-        auto avg_iterations = std::reduce(result_buffer.cbegin(), result_buffer.cend());
-        std::cout << "Average iterations: " << avg_iterations << std::endl;
-        std::cout << "\rProducing final image ... \x1b[K" << std::flush;
-        sf::Image const& completed_image = colorize(result_buffer, mandelbrot->width, mandelbrot->height,
-                                                    mandelbrot->completed_rows - 1, max_iterations, get_rainbow_color);
-        std::string png_file = process_filename_template(out_file, *mandelbrot, file_index, max_iterations, zoom_level);
-        std::cout << "\rWriting image to " << png_file << "\x1b[K" << std::endl;
-        completed_image.saveToFile(png_file);
+        iteration_count_t total_iterations = std::reduce(result_buffer.cbegin(), result_buffer.cend());
+        std::cout << "\rAverage iterations: " << (total_iterations / result_buffer.size()) << "\x1b[K\n";
+        if (!image_file.empty())
+        {
+            sf::Image const& completed_image =
+                colorize(result_buffer, mandelbrot->width, mandelbrot->height, mandelbrot->completed_rows - 1,
+                         max_iterations, get_rainbow_color);
+            std::string png_file =
+                process_filename_template(image_file, *mandelbrot, file_index, max_iterations, zoom_level);
+            std::cout << "Writing image to " << png_file << "\x1b[K" << std::flush;
+            completed_image.saveToFile(png_file);
+        }
 
-        std::string result_file =
-            process_filename_template("{file_index}.mandelbrot.z", *mandelbrot, file_index, max_iterations, zoom_level);
-        save_result(result_buffer, mandelbrot->width, mandelbrot->height, result_file);
+        if (!data_file.empty())
+        {
+            std::string result_file =
+                process_filename_template(data_file, *mandelbrot, file_index, max_iterations, zoom_level);
+            std::cout << "Writing data to " << result_file << "\x1b[K" << std::flush;
+            save_result(result_buffer, mandelbrot->width, mandelbrot->height, max_iterations, result_file);
+        }
 
         auto now = chrono::system_clock::now();
 
@@ -375,18 +358,20 @@ int main(int argc, char* argv[])
         ++file_index;
         zoom_level = zoom_level * zoom_factor + zoom_increment;
 
-        config["zoom"]["from"] = zoom_level;
-        config["checkpoint"]["file_index"] = file_index;
-        config["checkpoint"]["zoom"] = 1.0 / scale_factor;
-        config["checkpoint"]["t0"] = get_iso_timestamp(t0);
-        config["checkpoint"]["now"] = get_current_iso_timestamp();
-        config["checkpoint"]["elapsed_total"] = format_duration(now - t0);
-        config["checkpoint"]["elapsed_last_frame"] = format_duration(now - frame_t0);
-
-        std::string const& checkpoint_out_filename =
-            process_filename_template(checkpoint_file, *mandelbrot, file_index, max_iterations, zoom_level);
-        std::ofstream checkpoint(checkpoint_out_filename, std::ios::trunc);
-        checkpoint << config;
+        if (!checkpoint_file.empty())
+        {
+            config["zoom"]["from"] = zoom_level;
+            config["checkpoint"]["file_index"] = file_index;
+            config["checkpoint"]["zoom"] = 1.0 / scale_factor;
+            config["checkpoint"]["t0"] = get_iso_timestamp(t0);
+            config["checkpoint"]["now"] = get_current_iso_timestamp();
+            config["checkpoint"]["elapsed_total"] = format_duration(now - t0);
+            config["checkpoint"]["elapsed_last_frame"] = format_duration(now - frame_t0);
+            std::string const& checkpoint_out_filename =
+                process_filename_template(checkpoint_file, *mandelbrot, file_index, max_iterations, zoom_level);
+            std::ofstream checkpoint(checkpoint_out_filename, std::ios::trunc);
+            checkpoint << config;
+        }
     }
 
     // Signal all threads to terminate

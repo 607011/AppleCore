@@ -1,11 +1,13 @@
 #ifndef __UTIL_HPP__
 #define __UTIL_HPP__
 
-#include <SFML/Graphics.hpp>
 #include <chrono>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
+
+#include <SFML/Graphics.hpp>
 
 #include "defs.hpp"
 
@@ -14,8 +16,10 @@ extern std::string get_iso_timestamp(std::chrono::system_clock::time_point const
 extern std::string get_current_iso_timestamp(void);
 extern std::string replace_substring(std::string const& str, std::string const& substring, std::string const& value);
 
-void save_result(std::vector<iteration_count_t> const&, int width, int height, std::string const& filename);
-std::vector<iteration_count_t> load_result(std::string const& filename, int& width, int& height);
+void save_result(std::vector<iteration_count_t> const&, int width, int height, iteration_count_t max_iterations, std::string const& filename);
+std::vector<iteration_count_t> load_result(std::string const& filename, int& width, int& height, iteration_count_t &max_iterations);
+sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int height, int max_height,
+                   iteration_count_t max_iterations, std::function<sf::Color(double)> colorizer);
 
 template <typename Duration> std::string format_duration(Duration dt)
 {

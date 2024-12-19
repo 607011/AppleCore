@@ -40,9 +40,28 @@ endif()
 find_path(MPFR_INCLUDE_DIRS NAMES mpfr.h)
 find_library(MPFR_LIBRARY NAMES mpfr libmpfr)
 
+find_package(BZip2 REQUIRED)
+message(STATUS "BZip2 include dirs: ${BZIP2_INCLUDE_DIR}")
+message(STATUS "BZip2 lib dirs: ${BZIP2_LIBRARIES}")
+
+find_package(LibLZMA)
+message(STATUS "LZMA include dirs: ${LIBLZMA_INCLUDE_DIR}")
+message(STATUS "LZMA lib dirs: ${LIBLZMA_LIBRARIES}")
+
 find_package(ZLIB REQUIRED)
 message(STATUS "Zlib include dirs: ${ZLIB_INCLUDE_DIR}")
 message(STATUS "Zlib lib dirs: ${ZLIB_LIBRARIES}")
+
+find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
+find_library(AVCODEC_LIBRARY avcodec)
+message(STATUS "avcodec include dirs: ${AVCODEC_INCLUDE_DIR}")
+message(STATUS "avcodec lib dirs: ${AVCODEC_LIBRARY}")
+
+find_path(AVFORMAT_INCLUDE_DIR libavformat/avformat.h)
+find_library(AVFORMAT_LIBRARY avformat)
+
+find_path(AVUTIL_INCLUDE_DIR libavutil/avutil.h)
+find_library(AVUTIL_LIBRARY avutil)
 
 include(FetchContent)
 
@@ -75,6 +94,11 @@ set(MANDELBROT_SOURCES
   src/util.cpp
 )
 
+set(TRANSFORMER_SOURCES 
+  src/transform.cpp
+  src/util.cpp
+)
+
 add_executable(mandelbrot ${MANDELBROT_SOURCES})
 
 target_compile_features(mandelbrot PRIVATE cxx_std_17)
@@ -85,7 +109,9 @@ target_include_directories(mandelbrot
   PUBLIC ${SFML_INCLUDE_DIRS}
   ${Boost_INCLUDE_DIRS}
   ${MPRF_INCLUDE_DIRS}
-  ${ZLIB_INCLUDE_DIR}
+  ${LIBLZMA_INCLUDE_DIRS}
+  ${ZLIB_INCLUDE_DIRS}
+  ${BZIP2_INCLUDE_DIRS}
 )
 
 target_link_libraries(mandelbrot 
@@ -93,14 +119,46 @@ target_link_libraries(mandelbrot
   ${Boost_LIBRARIES}
   ${MPFR_LIBRARY}
   ${ZLIB_LIBRARIES}
+  ${GZIP_LIBRARIES}
+  ${BZIP2_LIBRARIES}
+  ${LIBLZMA_LIBRARIES}
   yaml-cpp::yaml-cpp
   sfml-graphics
 )
+
+
+add_executable(transform ${TRANSFORMER_SOURCES})
+target_include_directories(transform
+  PRIVATE ${PROJECT_INCLUDE_DIRS}
+  build
+  PUBLIC ${SFML_INCLUDE_DIRS}
+  ${Boost_INCLUDE_DIRS}
+  ${LIBLZMA_INCLUDE_DIRS}
+  ${ZLIB_INCLUDE_DIRS}
+  ${BZIP2_INCLUDE_DIRS}
+  ${AVCODEC_INCLUDE_DIR} ${AVFORMAT_INCLUDE_DIR} ${AVUTIL_INCLUDE_DIR}
+)
+
+target_link_libraries(transform 
+  PUBLIC
+  ${Boost_LIBRARIES}
+  ${MPFR_LIBRARY}
+  ${ZLIB_LIBRARIES}
+  ${GZIP_LIBRARIES}
+  ${BZIP2_LIBRARIES}
+  ${LIBLZMA_LIBRARIES}
+  ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY}
+  sfml-graphics
+)
+
 
 if(UNIX)
   if(CMAKE_BUILD_TYPE STREQUAL "Release")
     add_custom_command(TARGET mandelbrot
       POST_BUILD
       COMMAND strip mandelbrot)
+    add_custom_command(TARGET transform
+      POST_BUILD
+      COMMAND strip transform)
   endif()
 endif(UNIX)

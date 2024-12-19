@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <locale>
@@ -9,13 +10,16 @@
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/iostreams/copy.hpp>
-#include <boost/iostreams/filter/zlib.hpp>
+#include <boost/iostreams/filter/bzip2.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filter/lzma.hpp>
 #include <boost/iostreams/filtering_streambuf.hpp>
 #include <boost/serialization/vector.hpp>
 
 #include "util.hpp"
 
 namespace bios = boost::iostreams;
+namespace fs = std::filesystem;
 
 sf::Color get_rainbow_color(double value)
 {
@@ -85,28 +89,79 @@ std::string replace_substring(std::string const& str, const std::string& substri
     return result;
 }
 
-void save_result(std::vector<iteration_count_t> const& result_buffer, int width, int height,
+void save_result(std::vector<iteration_count_t> const& result_buffer, int width, int height, iteration_count_t max_iterations,
                  std::string const& filename)
 {
+    std::string suffix = fs::path(filename).extension().string();
     std::ofstream file(filename, std::ios::binary | std::ios::trunc);
     bios::filtering_ostreambuf out;
-    out.push(bios::zlib_compressor());
+    if (suffix == ".bz2")
+    {
+        out.push(bios::bzip2_compressor());
+    }
+    else if (suffix == ".gz")
+    {
+        out.push(bios::gzip_compressor());
+    }
+    else if (suffix == ".xz")
+    {
+        out.push(bios::lzma_compressor());
+    }
     out.push(file);
     boost::archive::binary_oarchive oa(out);
-    oa << width << height << result_buffer;
+    oa << width << height << max_iterations << result_buffer;
 }
 
-std::vector<iteration_count_t> load_result(std::string const& filename, int& width, int& height)
+std::vector<iteration_count_t> load_result(std::string const& filename, int& width, int& height, iteration_count_t &max_iterations)
 {
+    std::string suffix = fs::path(filename).extension().string();
     std::ifstream file(filename, std::ios::binary);
     std::vector<iteration_count_t> buf;
     bios::filtering_istreambuf in;
-    in.push(bios::zlib_decompressor());
+    if (suffix == ".bz2")
+    {
+        in.push(bios::bzip2_decompressor());
+    }
+    else if (suffix == ".gz")
+    {
+        in.push(bios::gzip_decompressor());
+    }
+    else if (suffix == ".xz")
+    {
+        in.push(bios::lzma_decompressor());
+    }
     in.push(file);
     boost::archive::binary_iarchive ia(in);
     ia >> width;
     ia >> height;
+    ia >> max_iterations;
     buf.reserve(width * height);
     ia >> buf;
     return buf;
+}
+
+sf::Image colorize(std::vector<iteration_count_t> const& buf, int width, int height, int max_height,
+                   iteration_count_t max_iterations, std::function<sf::Color(double)> colorizer)
+{
+    const int ymax = std::min(height, max_height);
+    sf::Image result_image;
+    result_image.create(width, ymax);
+    // iteration_count_t iterations_max = *std::max_element(std::begin(buf), std::end(buf));
+    auto iterations_it = std::begin(buf);
+    for (int y = 0; y < ymax; ++y)
+    {
+        for (int x = 0; x < width; ++x)
+        {
+            if (*iterations_it < max_iterations)
+            {
+                result_image.setPixel(x, y, colorizer(static_cast<double>(*iterations_it) / max_iterations));
+            }
+            else
+            {
+                result_image.setPixel(x, y, sf::Color::Black);
+            }
+            ++iterations_it;
+        }
+    }
+    return result_image;
 }
